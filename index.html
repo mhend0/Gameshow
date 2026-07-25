@@ -295,7 +295,25 @@ const SCREEN = params.get("screen") === "display" ? "display" : "control";
 document.body.dataset.screen = SCREEN;
 
 const STORE_KEY = "trivia_console_v2";
-const BOARDS = ["board1.html", "board2.html"];
+
+/* Which boards to play. The platform (Home / Sessions / Editor) launches the
+   console with ?session=<id> or ?board=<id>; those play data-model boards via
+   the console-compatible renderer (play-board.html). With no param we fall back
+   to the original static boards so any existing bookmark keeps working exactly. */
+function resolveBoards(){
+  const readColl = (name)=>{ try{ return JSON.parse(localStorage.getItem("gsp:"+name))||{}; }catch(e){ return {}; } };
+  const toUrl = (id)=>"play-board.html?board="+encodeURIComponent(id);
+  try{
+    const bid = params.get("board");
+    if(bid) return [toUrl(bid)];
+    const sid = params.get("session");
+    if(sid){ const s = readColl("sessions")[sid];
+      if(s && Array.isArray(s.boardIds) && s.boardIds.length) return s.boardIds.map(toUrl); }
+  }catch(e){}
+  return ["board1.html", "board2.html"];
+}
+const BOARDS = resolveBoards();
+const SESSION_NAME = (()=>{ try{ const s=JSON.parse(localStorage.getItem("gsp:sessions")||"{}")[params.get("session")]; return s?s.name:""; }catch(e){ return ""; } })();
 const bc = new BroadcastChannel("trivia_sync");
 
 const boardFrame  = document.getElementById("boardFrame");
@@ -304,6 +322,27 @@ const boardLoading = document.getElementById("boardLoading");
 let state = loadState();
 let currentBoardSrc = null;
 let displayShownCell = null, displayRevealed = false;
+
+/* Reconcile persisted progress with the launched session/board (control only).
+   A newly launched run starts at board 1; scores/teams are kept so the host can
+   decide whether to reset them via Setup. Always clamp the index to range. */
+if(SCREEN==="control"){
+  const launchKey = params.get("board") ? "board:"+params.get("board")
+                  : params.get("session") ? "session:"+params.get("session")
+                  : "legacy";
+  if(state.launchKey !== launchKey){
+    state.launchKey = launchKey;
+    state.boardIndex = 0;
+    state.completedPrompted = BOARDS.map(()=>false);
+    state.boardView = {cellId:null,revealed:false,inerts:[]};
+  }
+  if(state.boardIndex >= BOARDS.length) state.boardIndex = Math.max(0, BOARDS.length-1);
+  if(!Array.isArray(state.completedPrompted) || state.completedPrompted.length < BOARDS.length){
+    const c = BOARDS.map((_,i)=> (state.completedPrompted && state.completedPrompted[i]) || false);
+    state.completedPrompted = c;
+  }
+  pushState();
+}
 
 /* ---------- state ---------- */
 function defaultState(){

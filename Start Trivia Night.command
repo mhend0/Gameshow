@@ -19,8 +19,8 @@ else
   echo "Server already running."
 fi
 
-# Open the Control window in the default browser.
-open "http://localhost:$PORT/index.html?screen=control"
+# Open the Game Show Studio home screen in the default browser.
+open "http://localhost:$PORT/home.html"
 
 echo ""
 echo "======================================================"

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Board</title>
+<link rel="stylesheet" href="platform/ui/theme.css" />
+<style>
+  /* This page is loaded inside the console's iframe (Control + TV Display).
+     It reproduces the exact DOM/JS contract the console drives, so the console
+     needs no changes: window.modal.show/reveal/hide, .active-question, .inert,
+     .cell.points .cell-inner (value), and a #question-modal .question (answer). */
+  html, body { height: 100%; background: var(--bg-0); overflow: hidden; }
+  #gameplay { height: 100vh; padding: min(2.2vh, 20px); display: flex; }
+  .grid-play { display: flex; flex-direction: column; gap: min(1vh, 10px); width: 100%; height: 100%; }
+  .grid-row { display: grid; grid-template-columns: repeat(var(--cols, 5), 1fr); gap: min(1vw, 12px); }
+  .grid-row-cats { flex: 0 0 auto; }
+  .grid-row-questions { flex: 1 1 0; }
+
+  .grid-cell { min-width: 0; }
+  .grid-row-cats .cell-inner.cat-cell {
+    height: 100%; display: grid; place-items: center; text-align: center; padding: 8px;
+    background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 52%, #000));
+    color: #fff; font-weight: 900; text-transform: uppercase; letter-spacing: .01em; line-height: 1.1;
+    border-radius: 12px; font-size: clamp(13px, 1.7vw, 30px); box-shadow: var(--shadow-2);
+  }
+  .grid-row-cats .grid-cell { min-height: clamp(56px, 9vh, 120px); }
+
+  .grid-row-questions .grid-cell { display: flex; }
+  .cell.points {
+    position: relative; flex: 1; display: grid; place-items: center; border-radius: 12px; cursor: pointer;
+    background: radial-gradient(120% 120% at 50% 0, color-mix(in srgb, var(--accent) 22%, var(--bg-2)), var(--bg-1));
+    border: 1px solid var(--line-soft); transition: transform .14s var(--ease), box-shadow .14s var(--ease), border-color .14s;
+  }
+  .cell.points > .cell-inner {
+    font-weight: 900; color: var(--gold); font-size: clamp(22px, 4.2vw, 68px);
+    text-shadow: 0 3px 0 rgba(0,0,0,.35); font-variant-numeric: tabular-nums;
+  }
+  .cell.points:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); box-shadow: var(--shadow-2); }
+  .grid-cell.inert .cell.points:hover { transform: none; box-shadow: none; }
+  .grid-cell.inert .cell.points { cursor: default; background: var(--bg-1); border-color: transparent; }
+  .grid-cell.inert .cell.points > .cell-inner { opacity: .12; }
+  .cell.points.dd::after { content: ""; position: absolute; inset: 0; border-radius: 12px; box-shadow: inset 0 0 0 2px var(--gold); opacity: 0; }
+  .front.answer, .back.question { display: none; }
+
+  /* ---- question modal (the on-stage reveal) ---- */
+  #question-modal {
+    position: fixed; inset: 0; z-index: 50; display: none; place-items: center; padding: 4vh 4vw;
+    background: radial-gradient(120% 120% at 50% 0%, color-mix(in srgb, var(--accent) 30%, #05070e), #05070e);
+    animation: qmIn .28s var(--ease);
+  }
+  #question-modal.open { display: grid; }
+  @keyframes qmIn { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+  .qm-inner { width: min(1200px, 100%); max-height: 92vh; display: flex; flex-direction: column; align-items: center; gap: min(3vh, 26px); text-align: center; }
+  .qm-top { display: flex; align-items: center; gap: 14px; color: color-mix(in srgb, var(--accent) 40%, #fff); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; font-size: clamp(13px, 1.6vw, 22px); }
+  .qm-top .val { color: var(--gold); }
+  .qm-clue { color: #fff; font-weight: 800; line-height: 1.2; font-size: clamp(26px, 4.6vw, 66px); }
+  .qm-media img, .qm-media video { max-height: 46vh; max-width: 100%; border-radius: 14px; box-shadow: var(--shadow-3); }
+  .qm-media audio { width: min(560px, 80vw); }
+  #question-modal .question {
+    display: none; color: var(--gold); font-weight: 900; line-height: 1.2; font-size: clamp(24px, 4.2vw, 60px);
+    padding-top: min(2vh, 16px); border-top: 2px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  }
+  #question-modal .question.reveal { display: block; animation: qmIn .3s var(--ease); }
+  #question-modal .question .ans-media { margin-top: 14px; }
+  .qm-hint { color: var(--text-2); font-size: 14px; font-weight: 600; letter-spacing: .02em; }
+  .dd-flag { display: inline-flex; align-items: center; gap: 6px; color: var(--gold); }
+
+  .board-error { color: var(--text-1); text-align: center; margin: 20vh auto; font-family: var(--font); }
+</style>
+</head>
+<body>
+  <div id="gameplay"></div>
+  <div id="question-modal"><div class="qm-inner">
+    <div class="qm-top"></div>
+    <div class="qm-clue"></div>
+    <div class="qm-media"></div>
+    <div class="question"></div>
+    <div class="qm-hint"></div>
+  </div></div>
+
+  <!-- Empty stubs the console's injected CSS expects to hide (harmless if unused). -->
+  <div id="teams" style="display:none"></div>
+  <div id="options" style="display:none"></div>
+
+  <script type="module">
+    import { BoardRepo } from "./platform/core/repos.js";
+    import { AssetService } from "./platform/core/assets.js";
+    import { richIsEmpty } from "./platform/core/models.js";
+
+    const params = new URLSearchParams(location.search);
+    const board = BoardRepo.get(params.get("board"));
+    const gameplay = document.getElementById("gameplay");
+    const modalEl = document.getElementById("question-modal");
+
+    // The console sets window.do_autoplay = true only on the TV Display surface
+    // (and false on Control). We use that as the "this is the host's window" gate
+    // so the TV never self-triggers reveals — it's driven by the console mirror.
+    window.do_autoplay = false;
+    const isHost = () => !window.do_autoplay;
+
+    if (!board) {
+      gameplay.innerHTML = `<div class="board-error"><h1>Board unavailable</h1><p>This board could not be loaded.</p></div>`;
+      window.modal = { is_open: false, show(){}, reveal(){}, hide(){} };
+      window.hideModal = () => {};
+      window.renderState = () => {};
+    } else {
+      buildBoard(board);
+    }
+
+    function buildBoard(board) {
+      const cats = board.categories || [];
+      const rows = cats.reduce((m, c) => Math.max(m, c.clues.length), 0);
+      const cols = cats.length || 1;
+
+      const grid = document.createElement("div");
+      grid.className = "grid grid-play";
+      grid.style.setProperty("--cols", String(cols));
+
+      // categories header
+      const catRow = document.createElement("div");
+      catRow.className = "grid-row grid-row-cats";
+      catRow.style.setProperty("--cols", String(cols));
+      cats.forEach((cat) => {
+        catRow.insertAdjacentHTML("beforeend",
+          `<div class="grid-cell"><div class="cell"><div class="cell-inner cat-cell">${esc(cat.name || "")}</div></div></div>`);
+      });
+      grid.appendChild(catRow);
+
+      // value rows
+      for (let r = 0; r < rows; r++) {
+        const row = document.createElement("div");
+        row.className = "grid-row grid-row-questions";
+        row.style.setProperty("--cols", String(cols));
+        cats.forEach((cat, ci) => {
+          const clue = cat.clues[r];
+          const cell = document.createElement("div");
+          cell.className = "grid-cell";
+          cell.id = `cell-${ci}-${r}`;
+          if (!clue) { cell.innerHTML = `<div class="cell"></div>`; row.appendChild(cell); return; }
+
+          const back = document.createElement("div");
+          back.className = "back question";
+          back.appendChild(renderRich(clue.response, false));
+
+          const points = document.createElement("div");
+          points.className = "cell points" + (clue.dailyDouble ? " dd" : "");
+          points.innerHTML = `<div class="cell-inner">${Number(clue.value) || 0}</div>`;
+          const front = document.createElement("div");
+          front.className = "front answer";
+          points.appendChild(front);
+          points.appendChild(back);
+
+          // stash the clue so the modal can render it on demand
+          cell._clue = clue;
+          cell._catName = cat.name || "";
+          cell.appendChild(points);
+          cell.addEventListener("click", () => { if (isHost()) modal.show(cell); });
+          row.appendChild(cell);
+        });
+        grid.appendChild(row);
+      }
+
+      gameplay.appendChild(grid);
+    }
+
+    /* ---------- rich content ---------- */
+    function renderRich(rc, big) {
+      const wrap = document.createElement("span");
+      if (rc && rc.text && rc.text.trim()) {
+        const t = document.createElement("div");
+        t.textContent = rc.text;
+        wrap.appendChild(t);
+      }
+      for (const ref of (rc && rc.media) || []) {
+        const res = AssetService.resolve(ref);
+        if (!res) continue;
+        let node;
+        if (res.kind === "image") { node = new Image(); node.src = res.url; node.alt = res.alt || ""; }
+        else if (res.kind === "audio") { node = document.createElement("audio"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; }
+        else if (res.kind === "video") { node = document.createElement("video"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; node.playsInline = true; }
+        if (node) { node.className = big ? "" : "ans-media"; wrap.appendChild(node); }
+      }
+      return wrap;
+    }
+
+    /* ---------- modal (console-driven) ---------- */
+    let activeCell = null;
+
+    const modal = {
+      is_open: false,
+      show(cell) {
+        if (!cell || !cell._clue) return;
+        if (activeCell && activeCell !== cell) this.hide();
+        activeCell = cell;
+        cell.classList.add("active-question");
+
+        const clue = cell._clue;
+        modalEl.querySelector(".qm-top").innerHTML =
+          `<span>${esc(cell._catName)}</span><span class="val">${Number(clue.value) || 0}</span>` +
+          (clue.dailyDouble ? `<span class="dd-flag">⭐ Daily Double</span>` : ``);
+        const clueBox = modalEl.querySelector(".qm-clue");
+        const mediaBox = modalEl.querySelector(".qm-media");
+        clueBox.textContent = clue.prompt?.text || "";
+        mediaBox.innerHTML = "";
+        for (const ref of clue.prompt?.media || []) {
+          const res = AssetService.resolve(ref); if (!res) continue;
+          appendMedia(mediaBox, res);
+        }
+        const q = modalEl.querySelector(".question");
+        q.className = "question"; q.style.display = "none"; q.innerHTML = "";
+        modalEl.querySelector(".qm-hint").textContent = "Reveal Correct Response  ·  Space";
+        modalEl.classList.add("open");
+        this.is_open = true;
+      },
+      reveal() {
+        if (!activeCell) return;
+        const clue = activeCell._clue;
+        const q = modalEl.querySelector(".question");
+        q.innerHTML = "";
+        const txt = document.createElement("span");
+        txt.textContent = clue.response?.text || "";
+        q.appendChild(txt);
+        for (const ref of clue.response?.media || []) {
+          const res = AssetService.resolve(ref); if (!res) continue;
+          appendMedia(q, res, true);
+        }
+        q.classList.add("reveal"); q.style.display = "block";
+        modalEl.querySelector(".qm-hint").textContent = "Continue  ·  Esc";
+        this.is_open = true;
+      },
+      hide() {
+        modalEl.classList.remove("open");
+        const q = modalEl.querySelector(".question");
+        q.classList.remove("reveal"); q.style.display = "none"; q.innerHTML = "";
+        modalEl.querySelector(".qm-media").innerHTML = "";
+        if (activeCell) activeCell.classList.remove("active-question");
+        activeCell = null; this.is_open = false;
+      },
+    };
+
+    function appendMedia(box, res, isAnswer) {
+      let node;
+      if (res.kind === "image") { node = new Image(); node.src = res.url; node.alt = res.alt || ""; }
+      else if (res.kind === "audio") { node = document.createElement("audio"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; }
+      else if (res.kind === "video") { node = document.createElement("video"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; node.playsInline = true; }
+      if (node) { if (isAnswer) node.classList.add("ans-media"); box.appendChild(node); }
+    }
+
+    // Globals the console reaches for on the iframe window.
+    window.modal = modal;
+    window.hideModal = () => modal.hide();
+    window.renderState = () => { gameplay.style.filter = "none"; };
+
+    /* ---------- local interaction (host's own window only) ----------
+       The TV mirror never fires these: the console disables cell pointer-events
+       and the TV window isn't focused for keys. */
+    document.addEventListener("keydown", (e) => {
+      if (!isHost()) return;
+      if (e.key === " " || e.key === "Enter") {
+        if (modal.is_open) {
+          e.preventDefault();
+          const revealed = modalEl.querySelector(".question.reveal");
+          if (!revealed) modal.reveal(); else modal.hide();
+        }
+      } else if (e.key === "Escape") {
+        if (modal.is_open) { e.preventDefault(); modal.hide(); }
+      }
+    });
+    modalEl.addEventListener("click", () => {
+      if (!isHost()) return;
+      const revealed = modalEl.querySelector(".question.reveal");
+      if (!revealed) modal.reveal(); else modal.hide();
+    });
+
+    function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  </script>
+</body>
+</html>

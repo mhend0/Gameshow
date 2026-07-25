@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Boards · Game Show Studio</title>
+<link rel="stylesheet" href="platform/ui/theme.css" />
+<style>
+  .page-head { display:flex; align-items:flex-end; gap:16px; margin:28px 0 20px; flex-wrap:wrap; }
+  .page-head h1 { font-size:30px; }
+  .page-head .sub { color:var(--text-2); font-size:14px; margin-top:4px; }
+  .page-head .spacer { flex:1; }
+
+  .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  .toolbar .spacer { flex:1; }
+  select.input { width:auto; padding-right:34px; cursor:pointer; }
+
+  .tagbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+
+  .board-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; padding-bottom:60px; }
+
+  .board-card { position:relative; display:flex; flex-direction:column; padding:0; overflow:hidden; cursor:pointer;
+    transition:transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s var(--ease); }
+  .board-card:hover { transform:translateY(-4px); box-shadow:var(--shadow-3); border-color:var(--line); }
+  .bc-preview { height:132px; padding:12px; background:radial-gradient(120% 120% at 0 0, color-mix(in srgb,var(--accent) 16%,transparent), transparent 60%), var(--bg-0);
+    border-bottom:1px solid var(--line-soft); overflow:hidden; display:flex; align-items:center; }
+  .bc-preview .mini { transform:scale(1); width:100%; }
+  .bc-body { padding:15px 16px 16px; display:flex; flex-direction:column; gap:9px; flex:1; }
+  .bc-title { font-size:17px; font-weight:700; letter-spacing:-.01em; display:flex; align-items:center; gap:8px; }
+  .bc-meta { display:flex; align-items:center; gap:10px; color:var(--text-2); font-size:12.5px; font-weight:600; }
+  .bc-tags { display:flex; gap:6px; flex-wrap:wrap; }
+  .bc-tag { font-size:11px; font-weight:700; color:var(--text-1); background:var(--bg-3); border:1px solid var(--line-soft); padding:2px 8px; border-radius:999px; }
+  .bc-actions { display:flex; align-items:center; gap:6px; margin-top:auto; padding-top:4px; }
+  .bc-actions .spacer { flex:1; }
+  .fav { cursor:pointer; font-size:18px; line-height:1; background:none; border:none; padding:2px; filter:grayscale(1) opacity(.5); transition:all .2s var(--ease); }
+  .fav.on { filter:none; }
+  .fav:hover { transform:scale(1.15); }
+  .mini-board { display:grid; gap:3px; }
+  .mini-board .mrow { display:grid; gap:3px; }
+  .mini-cell { height:11px; border-radius:3px; background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 50%,#000)); opacity:.9; }
+  .mini-cell.q { background:var(--bg-3); opacity:.7; }
+</style>
+</head>
+<body>
+  <div id="topbar"></div>
+  <main class="wrap">
+    <div class="page-head">
+      <div>
+        <h1>Boards</h1>
+        <div class="sub" id="sub">Your Jeopardy board library</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn primary" id="newBoard">＋ New Board</button>
+    </div>
+
+    <div class="toolbar">
+      <div class="search" style="flex:1;max-width:420px">
+        <span>🔎</span>
+        <input id="q" placeholder="Search boards & categories…" autocomplete="off" />
+      </div>
+      <button class="chip" id="favFilter">★ Favourites</button>
+      <div class="spacer"></div>
+      <label class="field-label" style="color:var(--text-2)">Sort</label>
+      <select class="input" id="sort">
+        <option value="updated">Recently updated</option>
+        <option value="created">Newest</option>
+        <option value="name">Name (A–Z)</option>
+        <option value="size">Most clues</option>
+      </select>
+    </div>
+
+    <div class="tagbar" id="tagbar"></div>
+
+    <div id="content"></div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { BoardRepo } from "./platform/core/repos.js";
+    import { ensureSeeded } from "./platform/core/seed.js";
+    import { renderBoardGrid } from "./platform/ui/board-view.js";
+    import { el, toast, modal, confirmDialog, promptDialog, timeAgo, topbar } from "./platform/ui/ui.js";
+    import { boardClueCount } from "./platform/core/models.js";
+
+    document.getElementById("topbar").replaceWith(
+      topbar({ active: "Boards", links: [
+        { href: "home.html", label: "Home" },
+        { href: "boards.html", label: "Boards" },
+        { href: "sessions.html", label: "Sessions" },
+      ]})
+    );
+
+    const state = { query: "", tag: "", favouritesOnly: false, sort: "updated" };
+    const content = document.getElementById("content");
+
+    /* ---- mini preview (cheap, non-interactive) ---- */
+    function miniBoard(board) {
+      const cats = board.categories || [];
+      const cols = Math.min(cats.length, 6) || 1;
+      const rows = Math.min(cats.reduce((m,c)=>Math.max(m,c.clues.length),0), 5) || 1;
+      const wrap = el("div", { class: "mini-board", style: { gridTemplateColumns:`repeat(${cols},1fr)` } });
+      for (let c=0;c<cols;c++) wrap.appendChild(el("div",{class:"mini-cell"}));
+      for (let r=0;r<rows;r++) for (let c=0;c<cols;c++) wrap.appendChild(el("div",{class:"mini-cell q"}));
+      return wrap;
+    }
+
+    function boardCard(board) {
+      const accent = "#3b6fff";
+      const nCats = (board.categories||[]).length;
+      const nClues = boardClueCount(board);
+
+      const fav = el("button", { class:`fav ${board.meta?.favourite?"on":""}`, html: board.meta?.favourite?"★":"☆", title:"Favourite",
+        onClick:(e)=>{ e.stopPropagation(); BoardRepo.toggleFavourite(board.id); } });
+
+      const card = el("div", { class:"board-card card", style:{ "--accent":accent } }, [
+        el("div", { class:"bc-preview" }, [ el("div",{class:"mini"},[miniBoard(board)]) ]),
+        el("div", { class:"bc-body" }, [
+          el("div", { class:"bc-title" }, [ el("span",{text:board.name}) ]),
+          el("div", { class:"bc-meta" }, [
+            el("span",{text:`${nCats} categories`}),
+            el("span",{text:"·"}),
+            el("span",{text:`${nClues} clues`}),
+            el("span",{text:"·"}),
+            el("span",{text:timeAgo(board.updatedAt)}),
+          ]),
+          (board.meta?.tags||[]).length ? el("div",{class:"bc-tags"}, board.meta.tags.map(t=>el("span",{class:"bc-tag",text:t}))) : null,
+          el("div", { class:"bc-actions" }, [
+            fav,
+            el("span",{class:"spacer"}),
+            el("button",{class:"btn sm ghost",text:"Preview",onClick:(e)=>{e.stopPropagation();preview(board);}}),
+            el("button",{class:"btn sm ghost",html:"⋯",title:"More",onClick:(e)=>{e.stopPropagation();menu(board,e.currentTarget);}}),
+            el("button",{class:"btn sm primary",text:"Edit",onClick:(e)=>{e.stopPropagation();location.href=`editor.html?id=${board.id}`;}}),
+          ]),
+        ].filter(Boolean)),
+      ]);
+      card.addEventListener("click", ()=>location.href=`editor.html?id=${board.id}`);
+      return card;
+    }
+
+    /* ---- overflow menu ---- */
+    function menu(board, anchor) {
+      const items = [
+        { label:"Rename", fn: async()=>{ const n=await promptDialog({title:"Rename board",label:"Board name",value:board.name}); if(n) BoardRepo.rename(board.id,n); } },
+        { label:"Duplicate", fn: ()=>{ const c=BoardRepo.duplicate(board.id); if(c) toast("Board duplicated"); } },
+        { label:"Edit tags", fn: async()=>{ const cur=(board.meta?.tags||[]).join(", "); const n=await promptDialog({title:"Edit tags",label:"Comma-separated tags",value:cur,placeholder:"e.g. bible, movies"}); if(n!==null) BoardRepo.setTags(board.id, n.split(",").map(s=>s.trim()).filter(Boolean)); } },
+        { label:"Delete", danger:true, fn: async()=>{ if(await confirmDialog({title:"Delete board?",message:`“${board.name}” will be permanently removed.`,confirmText:"Delete",danger:true})) { BoardRepo.remove(board.id); toast("Board deleted"); } } },
+      ];
+      const list = el("div", { class:"popmenu card" }, items.map(it=>
+        el("button",{class:`popmenu-item ${it.danger?"danger":""}`,text:it.label,onClick:()=>{closePop();it.fn();}})));
+      openPop(list, anchor);
+    }
+    let popEl;
+    function openPop(node, anchor) {
+      closePop();
+      popEl = node; document.body.appendChild(node);
+      const r = anchor.getBoundingClientRect();
+      node.style.position="fixed";
+      node.style.top = `${r.bottom+6}px`;
+      node.style.left = `${Math.min(r.left, innerWidth-190)}px`;
+      node.style.zIndex="150";
+      setTimeout(()=>document.addEventListener("mousedown", onDoc),0);
+    }
+    function onDoc(e){ if(popEl && !popEl.contains(e.target)) closePop(); }
+    function closePop(){ if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",onDoc);} }
+
+    /* ---- preview modal ---- */
+    function preview(board) {
+      const grid = renderBoardGrid(board, { showDailyDouble:true });
+      const closeBtn = el("button",{class:"btn ghost",text:"Close"});
+      const m = modal({ title: board.name, body: el("div",{},[grid]), wide:true, actions:[
+        closeBtn,
+        el("button",{class:"btn primary",text:"Edit board",onClick:()=>location.href=`editor.html?id=${board.id}`}),
+      ]});
+      closeBtn.addEventListener("click", ()=>m.close());
+    }
+
+    /* ---- filters ---- */
+    function renderTags() {
+      const bar = document.getElementById("tagbar");
+      const tags = BoardRepo.allTags();
+      bar.innerHTML="";
+      if(!tags.length){ bar.style.display="none"; return; }
+      bar.style.display="flex";
+      bar.appendChild(el("span",{class:"chip"+(state.tag===""?" active":""),text:"All",onClick:()=>{state.tag="";render();}}));
+      for(const t of tags) bar.appendChild(el("span",{class:"chip"+(state.tag===t?" active":""),text:t,onClick:()=>{state.tag=state.tag===t?"":t;render();}}));
+    }
+
+    function render() {
+      renderTags();
+      document.getElementById("favFilter").classList.toggle("active", state.favouritesOnly);
+      const list = BoardRepo.query(state);
+      const all = BoardRepo.list();
+      document.getElementById("sub").textContent = `${all.length} board${all.length===1?"":"s"} in your library`;
+
+      content.innerHTML="";
+      if(!all.length){
+        content.appendChild(el("div",{class:"empty"},[
+          el("div",{class:"big",text:"🎛️"}),
+          el("div",{html:"<strong>No boards yet</strong>"}),
+          el("p",{text:"Create your first board to get started."}),
+          el("button",{class:"btn primary",text:"＋ New Board",style:{marginTop:"12px"},onClick:newBoard}),
+        ]));
+        return;
+      }
+      if(!list.length){
+        content.appendChild(el("div",{class:"empty"},[el("div",{class:"big",text:"🔍"}),el("p",{text:"No boards match your filters."})]));
+        return;
+      }
+      const grid = el("div",{class:"board-grid"});
+      list.forEach((b,i)=>{ const c=boardCard(b); c.classList.add("fade"); c.style.animationDelay=`${Math.min(i*0.03,0.3)}s`; grid.appendChild(c); });
+      content.appendChild(grid);
+    }
+
+    async function newBoard() {
+      const name = await promptDialog({ title:"New board", label:"Board name", value:"Untitled Board", confirmText:"Create" });
+      if(!name) return;
+      const b = BoardRepo.create({ name });
+      location.href = `editor.html?id=${b.id}`;
+    }
+
+    document.getElementById("newBoard").addEventListener("click", newBoard);
+    document.getElementById("q").addEventListener("input", (e)=>{ state.query=e.target.value; render(); });
+    document.getElementById("sort").addEventListener("change", (e)=>{ state.sort=e.target.value; render(); });
+    document.getElementById("favFilter").addEventListener("click", ()=>{ state.favouritesOnly=!state.favouritesOnly; render(); });
+
+    BoardRepo.subscribe(render);
+    ensureSeeded().then(render);
+    render();
+
+    // popmenu styles
+    document.head.appendChild(el("style",{html:`
+      .popmenu{min-width:180px;padding:6px;display:flex;flex-direction:column;gap:2px;box-shadow:var(--shadow-3)}
+      .popmenu-item{text-align:left;background:none;border:none;color:var(--text-0);font:inherit;font-weight:600;font-size:14px;padding:9px 11px;border-radius:9px;cursor:pointer}
+      .popmenu-item:hover{background:var(--bg-3)}
+      .popmenu-item.danger{color:var(--bad)}
+    `}));
+  </script>
+</body>
+</html>

@@ -1,9 +1,36 @@
-# Trivia Night — Jeopardy Console
+# Game Show Studio
 
-A little local app to run your two Jeopardy boards on a TV, with a live buzzer panel
-(Buzzonk) and a scoreboard that carries across both boards.
+A local **game-show platform** — Jeopardy today, built to host more games over time.
+Create and edit boards, plan sessions (a running order of boards), and run the show live
+on a TV with buzzers and a carry-over scoreboard.
 
-It uses **two windows**:
+## The platform
+
+Double-click **`Start Trivia Night.command`** and your browser opens the **Home screen**
+(`home.html`). From there:
+
+- **Home** — pick a game. Jeopardy opens its Control Console at your most-recent session.
+- **Boards** (`boards.html`) — your board library: search, sort, tag, favourite, duplicate,
+  preview, and open the **Editor** (`editor.html`) to edit categories, clues, answers, point
+  values, Daily Doubles, media (drag-and-drop, copied into the app so the project stays
+  portable), difficulty and notes.
+- **Sessions** (`sessions.html`) — plan a night: choose which boards play and in what order.
+  A session *references* boards, so one board can be reused across many sessions. **Launch**
+  drops straight into the console for that run.
+
+All content lives on your machine (browser storage under the `gsp:` namespace). The platform
+architecture lives in `platform/core` (data models, store, repositories, importer, assets)
+and `platform/ui` (design system + shared components), so new games plug in with minimal
+duplication.
+
+Your original two boards are imported automatically on first run and become editable boards
+in the library — nothing is lost.
+
+---
+
+## The live console (Control + TV Display)
+
+The console you run the show on uses **two windows**:
 
 - **Control** (your laptop) — the board you click, points, teams, settings, buzzer setup.
 - **TV Display** (your HDMI TV) — a clean screen with just the board, buzzers and scores.
@@ -72,6 +99,14 @@ inside the TV page). A floated window looks the same to your audience.
 
 ## Files
 
-- `index.html` — the app (both Control and TV views).
-- `board1.html`, `board2.html` — your two Jeopardy boards.
+- `home.html` — Game Show Studio home screen (the entry point).
+- `boards.html` · `editor.html` · `sessions.html` — board library, board editor, session planner.
+- `index.html` — the live console (both Control and TV views).
+- `play-board.html` — renders a data-model board for the console (replaces the static boards
+  when you launch from a session/editor; the console drives it unchanged).
+- `platform/core/*` — data models, store, repositories, board importer, asset system.
+- `platform/ui/*` — design system (`theme.css`) and shared components (`ui.js`, `board-view.js`).
+- `board1.html`, `board2.html` — the original static boards (kept as a fallback; their content
+  is also imported into the editable library on first run).
+- `buzzer/` — the buzzer service (Buzzonk-compatible).
 - `Start Trivia Night.command` — the double‑click launcher.
