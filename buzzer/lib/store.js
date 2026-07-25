@@ -2,15 +2,33 @@
 // State store: Upstash Redis (REST) — provisioned via the Vercel Marketplace.
 import { Redis } from "@upstash/redis";
 
+// Find an env var by suffix, so any Vercel storage prefix works
+// (e.g. Buzzer_KV_REST_API_URL, KV_REST_API_URL, UPSTASH_REDIS_REST_URL …).
+function envBySuffix(re, exclude) {
+  for (const [key, val] of Object.entries(process.env)) {
+    if (val && re.test(key) && !(exclude && exclude.test(key))) return val;
+  }
+  return undefined;
+}
+export function resolveCreds() {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL ||
+    envBySuffix(/KV_REST_API_URL$/) || envBySuffix(/UPSTASH_REDIS_REST_URL$/);
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN ||
+    envBySuffix(/KV_REST_API_TOKEN$/, /READ_ONLY/) ||
+    envBySuffix(/UPSTASH_REDIS_REST_TOKEN$/, /READ_ONLY/);
+  return { url, token };
+}
+
 let _redis;
 export function getRedis() {
   if (_redis) return _redis;
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  const { url, token } = resolveCreds();
   if (!url || !token) {
     throw new Error(
-      "Store not connected: missing UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN. " +
-      "In Vercel → your project → Storage, connect an Upstash Redis database, then redeploy."
+      "Store not connected: no *KV_REST_API_URL / *KV_REST_API_TOKEN found in env. " +
+      "In Vercel → Storage, connect a Redis database to this project, then redeploy."
     );
   }
   _redis = new Redis({ url, token });
