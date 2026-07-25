@@ -1,10 +1,9 @@
-// POST /api/create  → { code, hostToken }   (host creates a new room)
-import { redis, k, TTL, randCode, randId, cors } from "../lib/store.js";
+// POST /api/create  → { code, hostToken }
+import { getRedis, k, TTL, randCode, randId, api } from "../lib/store.js";
 
-export default async function handler(req, res) {
-  cors(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
+export default api(async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  const redis = getRedis();
 
   let code, tries = 0;
   do { code = randCode(4); tries++; } while ((await redis.exists(k(code, "meta"))) && tries < 8);
@@ -13,4 +12,4 @@ export default async function handler(req, res) {
   await redis.hset(k(code, "meta"), { host, open: 0, round: 1, created: Date.now() });
   await redis.expire(k(code, "meta"), TTL);
   res.json({ code, hostToken: host });
-}
+});

@@ -3,7 +3,7 @@
 // The referee. One atomic Lua script decides buzz order — first tap to reach
 // the server wins, and (because Redis runs it atomically) ties are impossible.
 // First buzzer also locks the room, classic "first-in gets to answer" style.
-import { redis, k, cors, up, touch } from "../lib/store.js";
+import { getRedis, k, api, up, touch } from "../lib/store.js";
 
 const LUA = `
 if redis.call('HGET', KEYS[1], 'open') ~= '1' then return -2 end
@@ -13,10 +13,9 @@ if n == 1 then redis.call('HSET', KEYS[1], 'open', '0') end
 return n
 `;
 
-export default async function handler(req, res) {
-  cors(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
+export default api(async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  const redis = getRedis();
 
   const b = req.body || {};
   const code = up(b.code);
@@ -38,4 +37,4 @@ export default async function handler(req, res) {
   if (r === -2) return res.json({ closed: true });
   if (r === -1) return res.json({ already: true });
   res.json({ ok: true, order: r });
-}
+});

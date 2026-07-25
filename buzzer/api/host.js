@@ -1,11 +1,10 @@
 // POST /api/host  { code, hostToken, action, ...args }   (host-only controls)
 // actions: arm | reopen | lock | score | rename | kick
-import { redis, k, cors, up, touch } from "../lib/store.js";
+import { getRedis, k, api, up, touch } from "../lib/store.js";
 
-export default async function handler(req, res) {
-  cors(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
+export default api(async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  const redis = getRedis();
 
   const b = req.body || {};
   const code = up(b.code);
@@ -16,14 +15,14 @@ export default async function handler(req, res) {
   const round = Number(meta.round) || 1;
 
   switch (b.action) {
-    case "arm": {                                  // new question: fresh + open for buzzing
+    case "arm": {
       const nr = round + 1;
       await redis.del(k(code, "buzzed", nr), k(code, "order", nr));
       await redis.hset(k(code, "meta"), { round: nr, open: 1 });
       await touch(code);
       return res.json({ ok: true, round: nr, open: true });
     }
-    case "reopen":                                 // same question, let remaining players buzz
+    case "reopen":
       await redis.hset(k(code, "meta"), { open: 1 });
       return res.json({ ok: true, open: true });
     case "lock":
@@ -45,4 +44,4 @@ export default async function handler(req, res) {
     default:
       return res.status(400).json({ error: "Unknown action" });
   }
-}
+});

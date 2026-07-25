@@ -1,11 +1,8 @@
 // GET /api/state?code=CODE  → { open, round, buzzes:[{pid,name,order,t}], players:[{pid,name,score}] }
-// Public read — anyone with the code can see the buzz list (that's the whole point).
-import { redis, k, cors, up } from "../lib/store.js";
+import { getRedis, k, api, up } from "../lib/store.js";
 
-export default async function handler(req, res) {
-  cors(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
-
+export default api(async (req, res) => {
+  const redis = getRedis();
   const code = up(req.query.code);
   const meta = await redis.hgetall(k(code, "meta"));
   if (!meta || !meta.host) return res.status(404).json({ error: "Room not found" });
@@ -26,4 +23,4 @@ export default async function handler(req, res) {
     buzzes: (order || []).map((o, i) => ({ pid: o.pid, name: o.name, t: o.t, order: i + 1 })),
     players,
   });
-}
+});
