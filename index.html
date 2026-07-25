@@ -45,7 +45,7 @@
   #boardLoading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9aa3d6;font-size:16px;pointer-events:none;}
 
   /* control sidebar */
-  #ctrlSide{flex:0 0 340px;max-width:340px;flex-direction:column;background:var(--panel);border-left:3px solid var(--gold);min-height:0;}
+  #ctrlSide{flex:0 0 420px;max-width:420px;flex-direction:column;background:var(--panel);border-left:3px solid var(--gold);min-height:0;}
   .sec-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#070a24;border-bottom:1px solid var(--line);font-weight:700;font-size:13px;color:var(--gold-bright);}
   .sec-head .zoom{margin-left:auto;display:flex;gap:5px;}
   #buzzSetup{padding:12px;border-bottom:2px solid var(--gold);}
@@ -144,6 +144,21 @@
   .pod{background:var(--blue);border:2px solid var(--gold);border-radius:10px 10px 0 0;width:150px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:12px;text-align:center;}
   .pod .rk{font-size:26px;} .pod .pn{font-weight:800;font-size:18px;margin:4px 0;word-break:break-word;} .pod .ps{font-size:24px;color:var(--gold-bright);font-weight:800;}
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:#0e1543;border:2px solid var(--gold);border-radius:12px;padding:14px 22px;font-size:16px;box-shadow:0 10px 40px rgba(0,0,0,.5);display:none;}
+  /* Join-QR overlay — sits on top of everything, both screens */
+  #qrOverlay{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;padding:24px;
+    background:radial-gradient(circle at 50% 40%,#0c1240,#04061a);}
+  #qrOverlay.show{display:flex;}
+  #qrOverlay .qr-card{text-align:center;max-width:640px;width:100%;}
+  #qrOverlay h1{color:var(--gold-bright);font-size:clamp(26px,4vw,44px);margin:0 0 18px;}
+  #qrBig{background:#fff;border-radius:16px;padding:16px;display:inline-block;min-height:20px;box-shadow:0 12px 50px rgba(0,0,0,.5);}
+  #qrBig canvas,#qrBig img{display:block;width:clamp(220px,34vh,340px);height:clamp(220px,34vh,340px);}
+  #qrOverlay .qr-code{font-size:clamp(30px,6vw,56px);font-weight:900;letter-spacing:6px;color:#fff;margin:16px 0 4px;}
+  #qrOverlay .qr-url{font-size:clamp(15px,2.4vw,20px);color:#c7ccf0;margin:0 0 14px;}
+  #qrOverlay .qr-url b{color:var(--gold-bright);}
+  #qrOverlay .qr-steps{display:inline-block;text-align:left;color:#e8ecff;font-size:clamp(15px,2.2vw,19px);line-height:1.9;margin:0 auto 22px;padding-left:26px;}
+  #qrOverlay .qr-steps b{color:var(--gold-bright);}
+  #qrOverlay #qrCloseBtn{display:block;margin:24px auto 0;font-size:16px;padding:12px 26px;}
+  body[data-screen="display"] #qrOverlay #qrCloseBtn{display:none;}   /* TV: operator closes it from control */
   kbd{background:#1b2350;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px;}
   a.link{color:var(--gold-bright);}
 </style>
@@ -156,6 +171,7 @@
     <div class="award-wrap"><label>Award</label><input id="awardInput" type="number" step="10" value="100"></div>
     <div class="spacer"></div>
     <button class="btn tv" id="openTvBtn">🖥 Open TV Display</button>
+    <button class="btn" id="qrBtn">📱 Join QR</button>
     <button class="btn" id="editBtn">✎ Teams</button>
     <button class="btn" id="nextBtn">Board 2 →</button>
     <button class="btn" id="setupBtn">⚙ Setup</button>
@@ -248,6 +264,23 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+
+  <!-- Join-QR overlay (both screens; purely visual, doesn't touch the game) -->
+  <div id="qrOverlay">
+    <div class="qr-card">
+      <h1>📱 Join the buzzers</h1>
+      <div id="qrBig"></div>
+      <div class="qr-code" id="qrRoomCode"></div>
+      <p class="qr-url">Scan, or go to <b id="qrUrlText"></b></p>
+      <ol class="qr-steps">
+        <li>Open the link (or scan the QR) on your phone</li>
+        <li>Type your name</li>
+        <li>Tap the big <b>BUZZ</b> button when you know the answer</li>
+      </ol>
+      <button class="btn" id="qrCloseBtn">✕ Close</button>
+    </div>
+  </div>
+
   <div id="overlay"><div class="card" id="overlayCard"></div></div>
   <div class="toast" id="toast"></div>
 
@@ -278,7 +311,7 @@ function defaultState(){
     teams:[{name:"Team 1",score:0},{name:"Team 2",score:0},{name:"Team 3",score:0}],
     boardIndex:0, award:100,
     buzzerCode:"", hostToken:"", buzzSynced:false,
-    buzzHidden:false, buzzedName:"",
+    buzzHidden:false, buzzedName:"", qrOverlay:false,
     completedPrompted:[false,false],
     boardView:{cellId:null,revealed:false,inerts:[]}
   };
@@ -301,6 +334,7 @@ bc.onmessage = (e)=>{
     renderScores(); updateChrome();
     if(state.boardIndex!==prevBoard) ensureBoard();
     if(SCREEN==="display"){ if(prevBuzz!==state.buzzerCode) updateBuzzer(); updateBuzzCover(); }
+    updateQrOverlay();
   } else if(m.type==="boardView" && SCREEN==="display"){
     state.boardView=m.view; applyDisplayBoardView(m.view);
   } else if(m.type==="ping" && SCREEN==="control"){
@@ -689,6 +723,32 @@ function updateBuzzCover(){
   } else c.style.display="none";
 }
 
+/* ---------- Join-QR overlay (purely visual; shown on both screens) ---------- */
+function toggleQr(){
+  if(!state.buzzerCode){ toast("Create a buzzer room first"); return; }
+  state.qrOverlay=!state.qrOverlay; pushState(); updateQrOverlay();
+}
+function closeQr(){ if(!state.qrOverlay) return; state.qrOverlay=false; pushState(); updateQrOverlay(); }
+function updateQrOverlay(){
+  const o=document.getElementById("qrOverlay"); if(!o)return;
+  if(state.qrOverlay && state.buzzerCode){
+    o.classList.add("show");
+    const code=document.getElementById("qrRoomCode"); if(code) code.textContent=state.buzzerCode;
+    const url=document.getElementById("qrUrlText"); if(url) url.textContent=joinURL().replace(/^https?:\/\//,"");
+    renderQrBig();
+  } else o.classList.remove("show");
+}
+function renderQrBig(){
+  const box=document.getElementById("qrBig"); if(!box)return;
+  const fallback = "<div style='color:#111;padding:24px;font-size:16px'>"+joinURL().replace(/^https?:\/\//,"")+"</div>";
+  box.innerHTML="";
+  try{
+    if(window.QRCode){ const cv=document.createElement("canvas"); box.appendChild(cv);
+      QRCode.toCanvas(cv, joinURL(), {width:340,margin:1}, e=>{ if(e) box.innerHTML=fallback; }); }
+    else box.innerHTML=fallback;
+  }catch(e){ box.innerHTML=fallback; }
+}
+
 /* ---------- TV window ---------- */
 let tvWin=null;
 function openTv(){ tvWin=window.open("index.html?screen=display","triviaTV"); if(tvWin){tvWin.focus(); setTimeout(pushState,400);} else toast("Allow pop-ups for this page, then retry"); }
@@ -706,6 +766,9 @@ if(SCREEN==="control"){
   document.getElementById("fsBtn").addEventListener("click",()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();});
   document.getElementById("addTeamBtn").addEventListener("click",()=>addTeam(false));
   document.getElementById("resetScoresBtn").addEventListener("click",()=>{if(confirm("Reset all scores to 0?"))resetScores();});
+  document.getElementById("qrBtn").addEventListener("click",toggleQr);
+  document.getElementById("qrCloseBtn").addEventListener("click",closeQr);
+  document.getElementById("qrOverlay").addEventListener("click",e=>{ if(e.target.id==="qrOverlay")closeQr(); });
   document.getElementById("showOnTvBtn").addEventListener("click",showQuestionOnTv);
   document.getElementById("createRoomBtn").addEventListener("click",createRoom);
   document.getElementById("copyLinkBtn").addEventListener("click",()=>{ navigator.clipboard.writeText(joinURL()).then(()=>toast("Join link copied")); });
@@ -730,6 +793,7 @@ if(SCREEN==="control"){
   renderRoomInfo(); refreshBuzzStatus(); startBuzzSync();
 }
 if(SCREEN==="display"){ updateBuzzer(); updateBuzzCover(); bc.postMessage({type:"ping"}); }
+updateQrOverlay();
 </script>
 </body>
 </html>
