@@ -104,6 +104,18 @@
   /* board complete flash on TV */
   #tvFlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,6,25,.9);z-index:20;text-align:center;}
   #tvFlash h1{color:var(--gold-bright);font-size:40px;margin:0;}
+  /* TV clue cover (shown after a buzz) */
+  #buzzCover{position:absolute;inset:0;z-index:25;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;
+    background:radial-gradient(circle at 50% 40%,#12184a,#05081e);}
+  #buzzCover .bell{font-size:80px;animation:ring 1s ease-in-out infinite;}
+  @keyframes ring{0%,100%{transform:rotate(0)}25%{transform:rotate(14deg)}75%{transform:rotate(-14deg)}}
+  #buzzCover .bn{font-size:40px;font-weight:900;color:var(--gold-bright);}
+  #buzzCover .bn span{color:#fff;}
+  #buzzCover .sm{font-size:18px;color:#9aa3d6;}
+  /* Control banner while the TV clue is hidden */
+  #hideBanner{position:absolute;top:0;left:0;right:0;z-index:19;align-items:center;justify-content:space-between;gap:12px;
+    padding:8px 14px;background:linear-gradient(180deg,#3a2c08,#241a05);border-bottom:2px solid var(--gold-bright);
+    color:#ffe9b0;font-size:14px;font-weight:600;}
   /* host-only correct-response cheat panel (control window only) */
   #hostAnswer{position:absolute;left:0;right:0;bottom:0;z-index:18;display:none;
     background:linear-gradient(0deg,rgba(3,5,20,.98),rgba(3,5,20,.9));
@@ -156,6 +168,17 @@
       <iframe id="boardFrame"></iframe>
       <div id="tvFlash" class="display-only" style="display:none"><div><h1 id="tvFlashText"></h1></div></div>
       <div id="hostAnswer"><div class="lbl">👁 Host only — correct response (not shown on TV)</div><div class="ans"></div></div>
+      <!-- TV: covers the clue once someone buzzes -->
+      <div id="buzzCover" class="display-only" style="display:none">
+        <div class="bell">🔔</div>
+        <div class="bn"><span id="buzzCoverName">Someone</span> buzzed in!</div>
+        <div class="sm">Answer it — clue is hidden</div>
+      </div>
+      <!-- Control: banner when the clue is hidden on the TV -->
+      <div id="hideBanner" class="control-only" style="display:none">
+        <span>🔔 <b id="hideBannerName">Someone</b> buzzed — clue hidden on TV</span>
+        <button class="btn sm" id="showOnTvBtn">👁 Show on TV</button>
+      </div>
     </div>
 
     <!-- ===== CONTROL sidebar ===== -->
@@ -255,6 +278,7 @@ function defaultState(){
     teams:[{name:"Team 1",score:0},{name:"Team 2",score:0},{name:"Team 3",score:0}],
     boardIndex:0, award:100,
     buzzerCode:"", hostToken:"", buzzSynced:false,
+    buzzHidden:false, buzzedName:"",
     completedPrompted:[false,false],
     boardView:{cellId:null,revealed:false,inerts:[]}
   };
@@ -276,7 +300,7 @@ bc.onmessage = (e)=>{
     state=Object.assign(defaultState(),m.state);
     renderScores(); updateChrome();
     if(state.boardIndex!==prevBoard) ensureBoard();
-    if(SCREEN==="display" && prevBuzz!==state.buzzerCode) updateBuzzer();
+    if(SCREEN==="display"){ if(prevBuzz!==state.buzzerCode) updateBuzzer(); updateBuzzCover(); }
   } else if(m.type==="boardView" && SCREEN==="display"){
     state.boardView=m.view; applyDisplayBoardView(m.view);
   } else if(m.type==="ping" && SCREEN==="control"){
@@ -366,11 +390,19 @@ function applyDisplayBoardView(view){
 }
 
 /* ---------- poll loop (control drives everything) ---------- */
-let lastViewKey="", lastPts=null;
+let lastViewKey="", lastPts=null, prevCellId=null, prevRevealed=false, lastHiddenCount=0;
 if(SCREEN==="control"){
   setInterval(()=>{
     const v=readBoardView(); if(!v)return;
     updateHostAnswer(v.cellId);
+    // question open / close / reveal transitions
+    if(v.cellId!==prevCellId){
+      if(v.cellId) onQuestionOpen(); else onQuestionClose();
+      prevCellId=v.cellId;
+    }
+    if(v.revealed && !prevRevealed) onReveal();
+    prevRevealed=v.revealed;
+    updateHideBanner();
     const key=JSON.stringify(v);
     if(key!==lastViewKey){ lastViewKey=key; state.boardView=v; pushBoardView(); }
     const pts=openQuestionPoints();
@@ -380,6 +412,32 @@ if(SCREEN==="control"){
       state.completedPrompted[state.boardIndex]=true; pushState(); onBoardComplete();
     }
   },160);
+}
+/* ---- buzz-hide + auto-open-buzzers mechanic ---- */
+function armBuzzers(){                                   // silent arm (needs a hosted room)
+  if(state.buzzerCode && state.hostToken){
+    fetch(BUZZER_BASE+"/api/host",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({code:state.buzzerCode,hostToken:state.hostToken.trim(),action:"arm"})}).catch(()=>{});
+  }
+}
+let awaitingArm=false;
+function onQuestionOpen(){                                 // fresh buzzers + clue shown
+  setBuzzHidden(false,"");
+  if(state.buzzerCode && state.hostToken){ awaitingArm=true; lastHiddenCount=Infinity; armBuzzers(); }
+  else { awaitingArm=false; lastHiddenCount=0; }
+}
+function onQuestionClose(){ setBuzzHidden(false,""); awaitingArm=false; armBuzzers(); }     // re-open buzzers for next
+function onReveal(){ setBuzzHidden(false,""); }                                            // showing the answer un-hides
+function setBuzzHidden(hidden,name){
+  if(state.buzzHidden===hidden && (name===undefined||state.buzzedName===name)) return;
+  state.buzzHidden=hidden; if(name!==undefined) state.buzzedName=name; pushState();
+}
+function showQuestionOnTv(){ setBuzzHidden(false, state.buzzedName); }   // keep name, just un-hide
+function updateHideBanner(){
+  const b=document.getElementById("hideBanner"); if(!b)return;
+  if(state.buzzHidden){ b.style.display="flex";
+    const n=document.getElementById("hideBannerName"); if(n) n.textContent=state.buzzedName||"Someone";
+  } else b.style.display="none";
 }
 
 /* ---------- scoreboard ---------- */
@@ -554,21 +612,32 @@ function refreshBuzzStatus(){
     if(ctrls) ctrls.style.display = state.hostToken ? "flex" : "none";
   } else { el.textContent="Not connected."; if(ctrls) ctrls.style.display="none"; }
 }
-/* CONTROL: poll buzzer players → auto-add as teams (dedup by lower-cased name) */
+/* CONTROL: poll buzzer → auto-add teams + hide clue on first buzz. Self-scheduling
+   (adaptive rate) and resilient: a transient error never stops the loop. */
+let buzzTickFn=null;
 function startBuzzSync(){
   if(SCREEN!=="control") return;
-  if(buzzSyncTimer){ clearInterval(buzzSyncTimer); buzzSyncTimer=null; }
+  clearTimeout(buzzSyncTimer);
   if(!state.buzzerCode) return;
-  const tick=async()=>{
-    if(!state.buzzerCode) return;
+  buzzTickFn=async()=>{
+    if(!state.buzzerCode) return;               // stop if disconnected
     let r=null;
-    try{ r=await fetch(BUZZER_BASE+"/api/state?code="+state.buzzerCode).then(x=>x.json()); }catch(e){ return; }
-    if(!r || r.error) return;
-    syncTeamsFromPlayers(r.players||[]);
-    const el=document.getElementById("buzzStatus");
-    if(el) el.innerHTML=`Connected to <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · ${(r.players||[]).length} player(s) joined`;
+    try{ r=await fetch(BUZZER_BASE+"/api/state?code="+state.buzzerCode).then(x=>x.json()); }catch(e){}
+    if(r && !r.error){
+      syncTeamsFromPlayers(r.players||[]);
+      // hide the clue on the TV once someone buzzes for the open question (anti-spam)
+      const qOpen = state.boardView && state.boardView.cellId && !state.boardView.revealed;
+      const n = (r.buzzes||[]).length;
+      if(awaitingArm){ if(n===0){ awaitingArm=false; lastHiddenCount=0; } }   // wait for arm to clear stale buzzes
+      else if(qOpen && n > lastHiddenCount){ lastHiddenCount=n; setBuzzHidden(true, r.buzzes[n-1].name); }
+      const el=document.getElementById("buzzStatus");
+      if(el) el.innerHTML=`Connected to <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · ${(r.players||[]).length} player(s) joined`;
+    }
+    const qOpenNow = state.boardView && state.boardView.cellId && !state.boardView.revealed;
+    clearTimeout(buzzSyncTimer);
+    buzzSyncTimer=setTimeout(()=>{ if(buzzTickFn) buzzTickFn(); }, qOpenNow ? 700 : 2000);
   };
-  tick(); buzzSyncTimer=setInterval(tick,1500);
+  buzzTickFn();
 }
 const isDefaultTeams = ()=> state.teams.every(t=>/^Team \d+$/.test((t.name||"").trim()) && (t.score||0)===0);
 function syncTeamsFromPlayers(players){
@@ -610,6 +679,15 @@ function updateBuzzer(){
     if(dot)dot.style.background="var(--bad)";
   }
 }
+/* DISPLAY: cover the clue once someone has buzzed */
+function updateBuzzCover(){
+  if(SCREEN!=="display")return;
+  const c=document.getElementById("buzzCover"); if(!c)return;
+  if(state.buzzHidden){
+    const n=document.getElementById("buzzCoverName"); if(n) n.textContent=state.buzzedName||"Someone";
+    c.style.display="flex";
+  } else c.style.display="none";
+}
 
 /* ---------- TV window ---------- */
 let tvWin=null;
@@ -628,6 +706,7 @@ if(SCREEN==="control"){
   document.getElementById("fsBtn").addEventListener("click",()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();});
   document.getElementById("addTeamBtn").addEventListener("click",()=>addTeam(false));
   document.getElementById("resetScoresBtn").addEventListener("click",()=>{if(confirm("Reset all scores to 0?"))resetScores();});
+  document.getElementById("showOnTvBtn").addEventListener("click",showQuestionOnTv);
   document.getElementById("createRoomBtn").addEventListener("click",createRoom);
   document.getElementById("copyLinkBtn").addEventListener("click",()=>{ navigator.clipboard.writeText(joinURL()).then(()=>toast("Join link copied")); });
   document.getElementById("disconnectBtn").addEventListener("click",()=>{ if(confirm("Disconnect this buzzer room?"))disconnectRoom(); });
@@ -650,7 +729,7 @@ if(SCREEN==="control"){
   const ht=document.getElementById("hostTokenInput"); if(ht&&state.hostToken) ht.value=state.hostToken;
   renderRoomInfo(); refreshBuzzStatus(); startBuzzSync();
 }
-if(SCREEN==="display"){ updateBuzzer(); bc.postMessage({type:"ping"}); }
+if(SCREEN==="display"){ updateBuzzer(); updateBuzzCover(); bc.postMessage({type:"ping"}); }
 </script>
 </body>
 </html>
