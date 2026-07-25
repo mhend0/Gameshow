@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buzzers</title>
+<style>
+  :root{--gold:#ffcc00;--good:#2fbf5b;--bad:#e8452b;}
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{background:#070a24;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;}
+  header{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:12px 16px;background:#04061a;border-bottom:2px solid var(--gold);}
+  header .dot{width:11px;height:11px;border-radius:50%;background:var(--bad);}
+  header.open .dot{background:var(--good);box-shadow:0 0 10px var(--good);}
+  header .t{font-weight:800;letter-spacing:1px;color:var(--gold);}
+  header .state{margin-left:auto;font-size:13px;font-weight:700;color:#9aa3d6;}
+  main{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0;}
+  .bz{display:flex;align-items:center;gap:16px;background:linear-gradient(180deg,#151d4d,#0e1436);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px 20px;
+    animation:pop .25s ease;}
+  @keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+  .bz .pos{font-size:34px;font-weight:900;color:var(--gold);min-width:60px;text-align:center;}
+  .bz .nm{font-size:30px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bz.first{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold) inset,0 0 24px rgba(255,204,0,.28);background:linear-gradient(180deg,#2a2a12,#191908);}
+  .bz.first .nm{font-size:40px;}
+  .bz.first .pos{font-size:44px;}
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#5b6394;gap:14px;}
+  .empty .big{font-size:70px;}
+  .empty.live{color:#9aa3d6;}
+</style>
+</head>
+<body>
+  <header id="hdr"><span class="dot"></span><span class="t">BUZZERS</span><span class="state" id="state">connecting…</span></header>
+  <main id="list"><div class="empty"><div class="big">🔔</div><div>Loading…</div></div></main>
+<script>
+const CODE = (new URLSearchParams(location.search).get("code")||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+const list=document.getElementById("list"), hdr=document.getElementById("hdr"), stateEl=document.getElementById("state");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let renderedKey="";
+
+async function tick(){
+  if(!CODE){ list.innerHTML='<div class="empty"><div class="big">🔔</div><div>No room code.</div></div>'; return; }
+  try{
+    const r = await fetch("/api/state?code="+CODE).then(x=>x.json());
+    if(r.error){ hdr.classList.remove("open"); stateEl.textContent="room not found"; return; }
+    hdr.classList.toggle("open", r.open);
+    stateEl.textContent = r.open ? "OPEN" : "LOCKED";
+    const key = r.round+"|"+r.open+"|"+r.buzzes.map(b=>b.pid).join(",");
+    if(key===renderedKey) return;                 // only re-render on change (avoids flicker)
+    renderedKey=key;
+    if(!r.buzzes.length){
+      list.innerHTML = `<div class="empty ${r.open?'live':''}"><div class="big">${r.open?'🟢':'🔔'}</div>
+        <div style="font-size:22px;font-weight:700">${r.open?'Buzzers are OPEN':'Get ready…'}</div>
+        <div>${r.open?'First to buzz wins':'Waiting for the host'}</div></div>`;
+    } else {
+      list.innerHTML = r.buzzes.map(b=>`<div class="bz ${b.order===1?'first':''}">
+        <div class="pos">${b.order===1?'🥇':('#'+b.order)}</div><div class="nm">${esc(b.name)}</div></div>`).join("");
+    }
+  }catch(e){ stateEl.textContent="reconnecting…"; }
+}
+tick(); setInterval(tick, 350);
+</script>
+</body>
+</html>

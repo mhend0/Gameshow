@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buzzer — Host</title>
+<style>
+  :root{--blue:#060ce9;--gold:#ffcc00;--good:#2fbf5b;--bad:#e8452b;--line:rgba(255,255,255,.12);}
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{background:#05081e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;display:flex;flex-direction:column;}
+  header{padding:10px 16px;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#0b1240,#070a24);border-bottom:2px solid var(--gold);flex-wrap:wrap;}
+  header .brand{font-weight:800;color:var(--gold);}
+  .btn{background:#12183f;color:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:700;cursor:pointer;}
+  .btn:hover{border-color:var(--gold);}
+  .btn.big{font-size:16px;padding:14px 18px;}
+  .btn.arm{background:#123a1e;border-color:var(--good);}
+  .btn.lock{background:#3a1414;border-color:#7a2c2c;}
+  .btn.blue{background:var(--blue);border-color:var(--gold);}
+  main{flex:1;display:flex;min-height:0;}
+  #left{flex:1;display:flex;flex-direction:column;min-width:0;padding:16px;gap:14px;}
+  #controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  #openState{font-weight:800;padding:8px 16px;border-radius:999px;}
+  .open{background:rgba(47,191,91,.18);color:#7CFC9B;}
+  .closed{background:rgba(232,69,43,.18);color:#ff9683;}
+  #buzzList{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;}
+  .bz{display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#151d4d,#0e1436);border:1px solid var(--line);border-radius:12px;padding:14px 18px;}
+  .bz.first{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset;background:linear-gradient(180deg,#2a2a12,#1a1a08);}
+  .bz .pos{font-size:26px;font-weight:900;color:var(--gold);width:52px;text-align:center;}
+  .bz .nm{font-size:22px;font-weight:700;}
+  .bz.first .nm{font-size:26px;}
+  .empty{color:#5b6394;text-align:center;padding:40px;font-size:16px;}
+  #right{flex:0 0 320px;border-left:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:14px;overflow:auto;}
+  .card{background:#0a1030;border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .card h3{margin:0 0 10px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--gold);}
+  .link{background:#04061a;border:1px dashed var(--gold);border-radius:8px;padding:10px;font-size:15px;word-break:break-all;text-align:center;color:#ffe9a8;}
+  .code{font-size:30px;font-weight:900;letter-spacing:3px;text-align:center;color:#fff;margin:6px 0;}
+  #qr{display:flex;justify-content:center;margin-top:10px;background:#fff;border-radius:8px;padding:8px;}
+  #qr canvas,#qr img{display:block;}
+  .player{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);}
+  .player .pn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .player .sc{font-weight:800;color:var(--gold);min-width:34px;text-align:right;}
+  .mini{width:30px;height:28px;border-radius:6px;border:none;font-weight:800;color:#fff;cursor:pointer;}
+  .mini.p{background:var(--good);} .mini.m{background:var(--bad);} .mini.k{background:#333;font-size:11px;}
+  a{color:var(--gold);}
+  .row{display:flex;gap:8px;}
+  .hint{font-size:12px;color:#7b83b8;line-height:1.5;}
+</style>
+</head>
+<body>
+  <header>
+    <span class="brand">🔔 BUZZER — HOST</span>
+    <span id="openState" class="closed">—</span>
+    <div id="controls" style="display:none">
+      <button class="btn arm big" id="armBtn">🔔 Open buzzers (new question)</button>
+      <button class="btn" id="reopenBtn" title="Let the remaining players buzz on the same question">↻ Re-open</button>
+      <button class="btn lock" id="lockBtn">🔒 Lock</button>
+    </div>
+    <span style="margin-left:auto"></span>
+    <a class="btn" id="tvLink" href="#" target="_blank" style="display:none">🖥 Open TV display</a>
+  </header>
+
+  <main>
+    <div id="left">
+      <div class="empty" id="preCreate">
+        <p style="font-size:18px">No room yet.</p>
+        <button class="btn blue big" id="createBtn">Create a room</button>
+      </div>
+      <div id="buzzList" style="display:none"></div>
+    </div>
+
+    <div id="right" style="display:none">
+      <div class="card">
+        <h3>Players join here</h3>
+        <div class="code" id="codeBig"></div>
+        <div class="link" id="joinLink"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="copyBtn" style="flex:1">Copy link</button>
+        </div>
+        <div id="qr"></div>
+        <p class="hint" style="margin-top:8px">Players scan the QR or open the link, type a name, and get a Buzz button.</p>
+      </div>
+      <div class="card">
+        <h3>Players &amp; scores</h3>
+        <div id="players"></div>
+        <p class="hint" id="noPlayers">No one has joined yet.</p>
+      </div>
+    </div>
+  </main>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script>
+let ROOM = JSON.parse(localStorage.getItem("buzz_host")||"null");   // {code, hostToken}
+let poll=null, lastRound=null;
+
+const api = (path,body)=>fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(r=>r.json());
+const host = (action,extra={})=>api("/api/host",Object.assign({code:ROOM.code,hostToken:ROOM.hostToken,action},extra));
+
+document.getElementById("createBtn").onclick = async ()=>{
+  const r = await api("/api/create",{});
+  if(r.error){ alert(r.error); return; }
+  ROOM = {code:r.code, hostToken:r.hostToken};
+  localStorage.setItem("buzz_host", JSON.stringify(ROOM));
+  boot();
+};
+document.getElementById("armBtn").onclick   = ()=>host("arm");
+document.getElementById("reopenBtn").onclick= ()=>host("reopen");
+document.getElementById("lockBtn").onclick  = ()=>host("lock");
+document.getElementById("copyBtn").onclick  = ()=>{
+  navigator.clipboard.writeText(joinURL()).then(()=>{ const b=document.getElementById("copyBtn"); b.textContent="Copied!"; setTimeout(()=>b.textContent="Copy link",1200); });
+};
+
+function joinURL(){ return location.origin + "/?code=" + ROOM.code; }
+function tvURL(){ return location.origin + "/display?code=" + ROOM.code; }
+
+function boot(){
+  if(!ROOM){ return; }
+  document.getElementById("preCreate").style.display="none";
+  document.getElementById("buzzList").style.display="flex";
+  document.getElementById("right").style.display="flex";
+  document.getElementById("controls").style.display="flex";
+  document.getElementById("codeBig").textContent = ROOM.code;
+  document.getElementById("joinLink").textContent = joinURL();
+  const tv=document.getElementById("tvLink"); tv.href=tvURL(); tv.style.display="inline-block";
+  renderQR();
+  startPolling();
+}
+function renderQR(){
+  const box=document.getElementById("qr"); box.innerHTML="";
+  try{
+    if(window.QRCode){ const c=document.createElement("canvas"); box.appendChild(c);
+      QRCode.toCanvas(c, joinURL(), {width:200,margin:1}, e=>{ if(e) box.innerHTML="<span style='color:#333'>(scan the link)</span>"; }); }
+    else box.innerHTML="<span style='color:#333;font-size:12px'>Link above</span>";
+  }catch(e){ box.innerHTML=""; }
+}
+
+function startPolling(){
+  if(poll) clearInterval(poll);
+  const tick=async()=>{
+    try{
+      const r = await fetch("/api/state?code="+ROOM.code).then(x=>x.json());
+      if(r.error){ if(r.error==="Room not found"){ /* expired */ } return; }
+      // open state
+      const os=document.getElementById("openState");
+      os.className = r.open ? "open" : "closed";
+      os.textContent = r.open ? "● BUZZERS OPEN" : "LOCKED";
+      // buzz list
+      const list=document.getElementById("buzzList");
+      if(!r.buzzes.length){
+        list.innerHTML = `<div class="empty">${r.open?"Buzzers are open — waiting for the first buzz…":"Click <b>Open buzzers</b> to start a question."}</div>`;
+      } else {
+        list.innerHTML = r.buzzes.map(b=>`<div class="bz ${b.order===1?'first':''}">
+          <div class="pos">${b.order===1?'🥇':('#'+b.order)}</div><div class="nm">${esc(b.name)}</div></div>`).join("");
+      }
+      // players
+      renderPlayers(r.players);
+    }catch(e){ /* offline; keep trying */ }
+  };
+  tick(); poll=setInterval(tick,450);
+}
+function renderPlayers(players){
+  const box=document.getElementById("players"); const none=document.getElementById("noPlayers");
+  none.style.display = players.length ? "none" : "block";
+  box.innerHTML = players.map(p=>`<div class="player" data-pid="${p.pid}">
+    <span class="pn">${esc(p.name)}</span>
+    <button class="mini m">−</button><span class="sc">${p.score}</span><button class="mini p">+</button>
+    <button class="mini k">✕</button></div>`).join("");
+  box.querySelectorAll(".player").forEach(row=>{
+    const pid=row.dataset.pid;
+    row.querySelector(".p").onclick=()=>host("score",{pid,delta:100});
+    row.querySelector(".m").onclick=()=>host("score",{pid,delta:-100});
+    row.querySelector(".k").onclick=()=>{ if(confirm("Remove this player?")) host("kick",{pid}); };
+  });
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+boot();
+</script>
+</body>
+</html>

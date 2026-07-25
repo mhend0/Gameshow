@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#060ce9">
+<title>Trivia Buzzer</title>
+<style>
+  :root{--blue:#060ce9;--gold:#ffcc00;--good:#2fbf5b;--bad:#e8452b;--panel:#0a1030;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;}
+  body{background:#05081e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+  header{flex:0 0 auto;padding:14px 16px;display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,#0b1240,#070a24);border-bottom:2px solid var(--gold);}
+  header .who{font-weight:800;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  header .room{margin-left:auto;font-size:12px;color:#9aa3d6;letter-spacing:1px;}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:20px;min-height:0;}
+  .status{font-size:18px;font-weight:700;text-align:center;min-height:26px;}
+  .sub{font-size:14px;color:#9aa3d6;text-align:center;}
+  #buzz{width:min(78vw,340px);height:min(78vw,340px);border-radius:50%;border:none;color:#fff;
+    font-size:46px;font-weight:900;letter-spacing:1px;cursor:pointer;box-shadow:0 12px 0 #7a1408,0 16px 30px rgba(0,0,0,.5);
+    background:radial-gradient(circle at 50% 35%,#ff6a4d,#e8452b 60%,#c62d16);transition:transform .05s, box-shadow .05s, filter .2s;}
+  #buzz:active{transform:translateY(10px);box-shadow:0 2px 0 #7a1408,0 6px 14px rgba(0,0,0,.5);}
+  #buzz.locked{filter:grayscale(.75) brightness(.7);pointer-events:none;box-shadow:0 12px 0 #333,0 16px 30px rgba(0,0,0,.4);
+    background:radial-gradient(circle at 50% 35%,#8a8a8a,#5c5c5c);}
+  #buzz.first{background:radial-gradient(circle at 50% 35%,#63e58a,#2fbf5b 60%,#1e9e46);box-shadow:0 12px 0 #14622b,0 16px 30px rgba(0,0,0,.5);}
+  .pill{padding:6px 14px;border-radius:999px;font-size:14px;font-weight:700;}
+  .pill.open{background:rgba(47,191,91,.18);color:#7CFC9B;}
+  .pill.closed{background:rgba(232,69,43,.18);color:#ff9683;}
+  form{display:flex;flex-direction:column;gap:14px;width:min(90vw,340px);}
+  input{background:#04061a;border:1px solid rgba(255,255,255,.15);border-radius:12px;color:#fff;padding:16px;font-size:18px;text-align:center;}
+  input:focus{outline:none;border-color:var(--gold);}
+  button.go{background:var(--blue);border:1px solid var(--gold);color:#fff;border-radius:12px;padding:16px;font-size:18px;font-weight:800;cursor:pointer;}
+  h1{font-size:22px;margin:0 0 4px;text-align:center;}
+  .logo{font-size:40px;text-align:center;}
+  .err{color:#ff9683;font-size:13px;text-align:center;min-height:16px;}
+  .foot{flex:0 0 auto;padding:10px;text-align:center;font-size:12px;color:#4b5488;}
+</style>
+</head>
+<body>
+  <header id="hdr" style="display:none">
+    <span class="who" id="whoName">—</span>
+    <span class="room">ROOM <b id="roomTag"></b></span>
+  </header>
+
+  <main id="main">
+    <div class="logo">🔔</div>
+    <div class="sub">Loading…</div>
+  </main>
+
+  <div class="foot">Trivia Buzzer</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+let CODE = (qs.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g,"");
+const main = document.getElementById("main");
+const hdr = document.getElementById("hdr");
+let me = null;              // {playerId, name}
+let poll = null;
+let myOrder = null;         // my buzz position this round, or null
+let lastRound = null;
+
+function api(path, body){
+  return fetch(path, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(r=>r.json());
+}
+function store(){ return CODE ? JSON.parse(localStorage.getItem("buzz_p_"+CODE)||"null") : null; }
+function saveMe(){ localStorage.setItem("buzz_p_"+CODE, JSON.stringify(me)); }
+
+/* ---------- screens ---------- */
+function showEnterCode(msg){
+  hdr.style.display="none";
+  main.innerHTML = `
+    <div class="logo">🔔</div>
+    <h1>Join the game</h1>
+    <div class="err">${msg||""}</div>
+    <form id="f">
+      <input id="code" inputmode="text" autocapitalize="characters" placeholder="ROOM CODE" value="${CODE||""}" maxlength="6">
+      <button class="go" type="submit">Continue</button>
+    </form>`;
+  document.getElementById("f").onsubmit = e=>{
+    e.preventDefault();
+    const c=document.getElementById("code").value.toUpperCase().replace(/[^A-Z0-9]/g,"");
+    if(!c) return;
+    location.search = "?code="+c;
+  };
+}
+function showEnterName(msg){
+  hdr.style.display="none";
+  main.innerHTML = `
+    <div class="logo">🔔</div>
+    <h1>Room ${CODE}</h1>
+    <div class="sub">Pick a name so the host knows who buzzed.</div>
+    <div class="err">${msg||""}</div>
+    <form id="f">
+      <input id="name" placeholder="Your name" maxlength="24" autocomplete="off">
+      <button class="go" type="submit">Join</button>
+    </form>`;
+  const inp=document.getElementById("name"); inp.focus();
+  document.getElementById("f").onsubmit = async e=>{
+    e.preventDefault();
+    const name=inp.value.trim(); if(!name) return;
+    const r = await api("/api/join",{code:CODE,name});
+    if(r.error){ showEnterName(r.error); return; }
+    me = {playerId:r.playerId, name:r.name}; saveMe();
+    showBuzz();
+  };
+}
+function showBuzz(){
+  hdr.style.display="flex";
+  document.getElementById("whoName").textContent = me.name;
+  document.getElementById("roomTag").textContent = CODE;
+  main.innerHTML = `
+    <div class="pill closed" id="pill">Waiting…</div>
+    <button id="buzz" class="locked">BUZZ</button>
+    <div class="status" id="st">Get ready…</div>`;
+  document.getElementById("buzz").addEventListener("click", doBuzz);
+  startPolling();
+}
+
+/* ---------- buzz ---------- */
+let armedOpen = false;
+async function doBuzz(){
+  if(!armedOpen) return;
+  navigator.vibrate && navigator.vibrate(60);
+  const btn=document.getElementById("buzz");
+  btn.classList.add("locked"); armedOpen=false;
+  setStatus("Buzzing…","");
+  const r = await api("/api/buzz",{code:CODE,playerId:me.playerId});
+  if(r.ok){ myOrder=r.order; renderMine(); }
+  else if(r.already){ renderMine(); }
+  else if(r.closed){ setStatus("🔒 Too late!","#ff9683"); }
+  else setStatus(r.error||"Try again","#ff9683");
+}
+function renderMine(){
+  const btn=document.getElementById("buzz");
+  if(myOrder===1){ btn.className="first"; btn.textContent="1st!"; setStatus("🔔 You buzzed FIRST!","#7CFC9B"); }
+  else if(myOrder){ btn.className="locked"; btn.textContent="#"+myOrder; setStatus("Buzzed in — position #"+myOrder,"#ffd27a"); }
+}
+function setStatus(t,color){ const s=document.getElementById("st"); if(s){ s.textContent=t; s.style.color=color||"#fff"; } }
+
+/* ---------- polling (keeps the button in sync + auto-reconnects) ---------- */
+function startPolling(){
+  if(poll) clearInterval(poll);
+  const tick = async ()=>{
+    try{
+      const r = await fetch("/api/state?code="+CODE).then(x=>x.json());
+      if(r.error){ return; }
+      // new round? reset my button
+      if(r.round !== lastRound){ lastRound=r.round; myOrder=null; }
+      const mine = r.buzzes.find(b=>b.pid===me.playerId);
+      myOrder = mine ? mine.order : null;
+      const pill=document.getElementById("pill"), btn=document.getElementById("buzz");
+      if(!pill||!btn) return;
+      if(myOrder){ renderMine(); pill.className="pill closed"; pill.textContent="You buzzed"; return; }
+      if(r.open){
+        armedOpen=true; btn.className=""; btn.textContent="BUZZ";
+        pill.className="pill open"; pill.textContent="● BUZZERS OPEN";
+        setStatus("Tap to buzz!","");
+      } else {
+        armedOpen=false; btn.className="locked"; btn.textContent="BUZZ";
+        pill.className="pill closed"; pill.textContent="Buzzers locked";
+        setStatus(r.buzzes.length ? (r.buzzes[0].name+" buzzed first") : "Wait for the host…","");
+      }
+    }catch(e){ /* offline: keep trying, button state unchanged */ }
+  };
+  tick();
+  poll = setInterval(tick, 900);
+}
+
+/* ---------- boot ---------- */
+(async function(){
+  if(!CODE){ showEnterCode(); return; }
+  me = store();
+  if(me && me.playerId){
+    const r = await api("/api/join",{code:CODE,name:me.name,playerId:me.playerId});
+    if(r.error){ localStorage.removeItem("buzz_p_"+CODE); showEnterName(r.error); return; }
+    me={playerId:r.playerId,name:r.name}; saveMe(); showBuzz();
+  } else {
+    // verify room exists before asking for a name
+    const test = await fetch("/api/state?code="+CODE).then(x=>x.json()).catch(()=>({error:"offline"}));
+    if(test.error==="Room not found") showEnterCode("That room code wasn't found.");
+    else showEnterName();
+  }
+})();
+</script>
+</body>
+</html>

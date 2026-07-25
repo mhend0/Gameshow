@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trivia Night — Jeopardy Console</title>
+<style>
+  :root{
+    --blue:#060ce9; --blue-deep:#070b6b; --gold:#d69f4c; --gold-bright:#ffcc00;
+    --panel:#0a1030; --panel-2:#12183f; --line:rgba(255,255,255,.12);
+    --good:#2fbf5b; --bad:#e8452b; --text:#fff;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;overflow:hidden;}
+  body{background:#000;color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;}
+  .control-only{display:none;} .display-only{display:none;}
+  body[data-screen="control"] .control-only{display:var(--co-disp,flex);}
+  body[data-screen="display"] .display-only{display:var(--do-disp,flex);}
+
+  /* ---------- top bar (control) ---------- */
+  #topbar{flex:0 0 auto;align-items:center;gap:10px;padding:7px 14px;
+    background:linear-gradient(180deg,#0b1240,#070a24);border-bottom:2px solid var(--gold);z-index:30;}
+  #topbar .brand{font-weight:800;font-size:16px;color:var(--gold-bright);white-space:nowrap;line-height:1;}
+  #topbar .brand small{display:block;font-size:9px;color:#9aa3d6;letter-spacing:2px;font-weight:600;margin-top:2px;}
+  #boardTag{background:var(--blue);border:1px solid var(--gold);border-radius:6px;padding:5px 12px;font-weight:700;font-size:13px;white-space:nowrap;}
+  .spacer{flex:1;}
+  .award-wrap{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:4px 10px;}
+  .award-wrap label{font-size:10px;color:#9aa3d6;text-transform:uppercase;letter-spacing:1px;}
+  #awardInput{width:82px;font-size:20px;font-weight:800;text-align:center;color:var(--gold-bright);background:transparent;border:none;border-bottom:2px solid var(--gold);}
+  #awardInput:focus{outline:none;}
+  .btn{background:var(--panel-2);color:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
+  .btn:hover{background:#1b2456;border-color:var(--gold);}
+  .btn.primary{background:var(--blue);border-color:var(--gold);}
+  .btn.primary:hover{background:#0a15ff;}
+  .btn.tv{background:#123a1e;border-color:#2fbf5b;}
+  .btn.warn{background:#3a1414;border-color:#7a2c2c;}
+  .btn.sm{padding:5px 9px;font-size:12px;}
+
+  /* ---------- stage ---------- */
+  #stage{flex:1;display:flex;min-height:0;}
+  #boardWrap{flex:1;position:relative;background:var(--blue-deep);min-width:0;}
+  #boardFrame{width:100%;height:100%;border:none;display:block;background:var(--blue-deep);}
+  #boardLoading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9aa3d6;font-size:16px;pointer-events:none;}
+
+  /* control sidebar */
+  #ctrlSide{flex:0 0 340px;max-width:340px;flex-direction:column;background:var(--panel);border-left:3px solid var(--gold);min-height:0;}
+  .sec-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#070a24;border-bottom:1px solid var(--line);font-weight:700;font-size:13px;color:var(--gold-bright);}
+  .sec-head .zoom{margin-left:auto;display:flex;gap:5px;}
+  #buzzSetup{padding:12px;border-bottom:2px solid var(--gold);}
+  #buzzSetup .status{font-size:13px;margin:0 0 10px;color:#c7ccf0;line-height:1.5;}
+  #buzzSetup .status b{color:var(--gold-bright);}
+  #buzzSetup .row{display:flex;gap:6px;margin-top:8px;}
+  #buzzSetup input{flex:1;min-width:0;background:#04061a;border:1px solid var(--line);border-radius:6px;color:#fff;padding:8px 10px;font-size:14px;}
+  .tiny{font-size:11px;color:#7b83b8;margin-top:8px;line-height:1.5;}
+  #ctrlScores{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;}
+  #ctrlScoresFoot{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line);background:#070a24;}
+  #ctrlScoresFoot .btn{flex:1;}
+
+  /* control score rows */
+  .crow{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:2px 10px;align-items:center;
+    background:linear-gradient(180deg,#151d4d,#0e1436);border:1px solid var(--line);border-radius:10px;padding:8px 12px;position:relative;}
+  .crow.leader{border-color:var(--gold-bright);box-shadow:0 0 0 1px var(--gold-bright) inset;}
+  .crow .tname{font-size:15px;font-weight:700;color:#fff;background:transparent;border:none;border-bottom:1px dashed transparent;padding:2px 0;min-width:0;width:100%;}
+  .crow .tname:focus{outline:none;border-bottom-color:var(--gold);}
+  .crow .tscore{grid-row:1 / span 2;font-size:30px;font-weight:800;color:var(--gold-bright);text-align:right;min-width:78px;font-variant-numeric:tabular-nums;background:transparent;border:none;}
+  .crow .tscore:focus{outline:none;background:#04061a;border-radius:6px;}
+  .crow .ctrls{display:flex;gap:6px;}
+  .pm{width:40px;height:32px;border-radius:8px;border:none;font-size:19px;font-weight:800;cursor:pointer;color:#fff;}
+  .pm.plus{background:var(--good);} .pm.minus{background:var(--bad);}
+  .pm:active{transform:translateY(1px);}
+  .crow .remove{position:absolute;top:3px;right:6px;background:none;border:none;color:#6b74a8;cursor:pointer;font-size:12px;display:none;}
+  body.editing .crow .remove{display:inline;}
+  body.editing .crow .tname{border-bottom-color:var(--gold);}
+
+  /* display buzzer column (thin) */
+  #dispBuzz{flex:0 0 300px;max-width:300px;flex-direction:column;background:var(--panel);border-left:3px solid var(--gold);min-height:0;}
+  #dispBuzz .sec-head .dot{width:9px;height:9px;border-radius:50%;background:var(--bad);box-shadow:0 0 8px var(--bad);animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  #buzzZone{flex:1;position:relative;margin:12px;border:2px dashed #2b3466;border-radius:12px;
+    display:flex;align-items:center;justify-content:center;text-align:center;color:#8a93c8;padding:20px;min-height:0;
+    transition:.25s;background:repeating-linear-gradient(45deg,#0d1233,#0d1233 12px,#0b0f2b 12px,#0b0f2b 24px);}
+  #buzzZone.active{border-color:var(--gold-bright);color:#e8ecff;}
+  #buzzZoneInner .big{font-size:52px;margin-bottom:10px;}
+  #buzzZoneTitle{font-size:17px;font-weight:800;color:#fff;margin-bottom:8px;}
+  #buzzZoneMsg{font-size:13px;line-height:1.6;}
+  #buzzZoneMsg b{color:var(--gold-bright);}
+
+  /* display scores strip */
+  #scoresStrip{flex:0 0 auto;background:linear-gradient(180deg,#0c1240,#05081e);border-top:3px solid var(--gold);
+    align-items:stretch;gap:12px;padding:12px 16px;overflow-x:auto;min-height:132px;}
+  #scoresStrip .lead{display:flex;flex-direction:column;justify-content:center;gap:6px;padding-right:8px;border-right:1px solid var(--line);}
+  #scoresStrip .lead .t{font-size:12px;color:#9aa3d6;letter-spacing:1px;text-transform:uppercase;}
+  .dcard{position:relative;flex:0 0 auto;min-width:170px;background:linear-gradient(180deg,#151d4d,#0e1436);
+    border:1px solid var(--line);border-radius:14px;padding:12px 18px;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:center;}
+  .dcard.leader{border-color:var(--gold-bright);box-shadow:0 0 0 2px var(--gold-bright) inset,0 0 22px rgba(255,204,0,.3);}
+  .dcard .crown{position:absolute;top:-14px;font-size:22px;display:none;}
+  .dcard.leader .crown{display:block;}
+  .dcard .dn{font-size:19px;font-weight:700;color:#fff;text-align:center;}
+  .dcard .ds{font-size:40px;font-weight:800;color:var(--gold-bright);line-height:1;font-variant-numeric:tabular-nums;}
+
+  /* board complete flash on TV */
+  #tvFlash{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,6,25,.9);z-index:20;text-align:center;}
+  #tvFlash h1{color:var(--gold-bright);font-size:40px;margin:0;}
+  /* host-only correct-response cheat panel (control window only) */
+  #hostAnswer{position:absolute;left:0;right:0;bottom:0;z-index:18;display:none;
+    background:linear-gradient(0deg,rgba(3,5,20,.98),rgba(3,5,20,.9));
+    border-top:3px solid var(--gold-bright);padding:12px 22px;max-height:46%;overflow:auto;
+    box-shadow:0 -8px 30px rgba(0,0,0,.5);}
+  #hostAnswer .lbl{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--gold-bright);font-weight:700;margin-bottom:6px;}
+  #hostAnswer .ans{font-size:30px;font-weight:800;color:#fff;line-height:1.25;}
+  #hostAnswer .ans p{margin:0 0 6px;}
+  #hostAnswer .ans img{max-height:26vh;max-width:100%;border-radius:4px;}
+  body[data-screen="display"] #hostAnswer{display:none!important;}
+
+  /* overlay (control) */
+  #overlay{position:fixed;inset:0;background:rgba(2,4,20,.85);z-index:60;display:none;align-items:center;justify-content:center;padding:24px;}
+  #overlay.show{display:flex;}
+  .card{background:linear-gradient(180deg,#0e1543,#0a0f30);border:3px solid var(--gold);border-radius:16px;max-width:820px;width:100%;max-height:90vh;overflow:auto;padding:26px 32px;box-shadow:0 20px 80px rgba(0,0,0,.6);}
+  .card h1{margin:0 0 6px;color:var(--gold-bright);font-size:27px;}
+  .card p.sub{margin:0 0 18px;color:#9aa3d6;}
+  .card h2{color:var(--gold-bright);font-size:15px;text-transform:uppercase;letter-spacing:1px;margin:22px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px;}
+  .field{display:flex;gap:10px;align-items:center;margin:10px 0;flex-wrap:wrap;}
+  .field label{width:150px;color:#c7ccf0;font-size:14px;}
+  .field input[type=text]{flex:1;min-width:160px;background:#04061a;border:1px solid var(--line);border-radius:8px;color:#fff;padding:10px 12px;font-size:16px;}
+  .editrow{display:flex;gap:8px;align-items:center;margin:6px 0;}
+  .editrow input{flex:1;background:#04061a;border:1px solid var(--line);border-radius:8px;color:#fff;padding:8px 10px;}
+  .card .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px;flex-wrap:wrap;}
+  #podium{display:flex;gap:14px;align-items:flex-end;justify-content:center;margin:20px 0;flex-wrap:wrap;}
+  .pod{background:var(--blue);border:2px solid var(--gold);border-radius:10px 10px 0 0;width:150px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:12px;text-align:center;}
+  .pod .rk{font-size:26px;} .pod .pn{font-weight:800;font-size:18px;margin:4px 0;word-break:break-word;} .pod .ps{font-size:24px;color:var(--gold-bright);font-weight:800;}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:80;background:#0e1543;border:2px solid var(--gold);border-radius:12px;padding:14px 22px;font-size:16px;box-shadow:0 10px 40px rgba(0,0,0,.5);display:none;}
+  kbd{background:#1b2350;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px;}
+  a.link{color:var(--gold-bright);}
+</style>
+</head>
+<body>
+  <!-- ===== CONTROL top bar ===== -->
+  <div id="topbar" class="control-only">
+    <div class="brand">TRIVIA NIGHT<small>CONTROL</small></div>
+    <div id="boardTag">Board 1 of 2</div>
+    <div class="award-wrap"><label>Award</label><input id="awardInput" type="number" step="10" value="100"></div>
+    <div class="spacer"></div>
+    <button class="btn tv" id="openTvBtn">🖥 Open TV Display</button>
+    <button class="btn" id="editBtn">✎ Teams</button>
+    <button class="btn" id="nextBtn">Board 2 →</button>
+    <button class="btn" id="setupBtn">⚙ Setup</button>
+    <button class="btn" id="fsBtn">⛶ Fullscreen</button>
+  </div>
+
+  <div id="stage">
+    <div id="boardWrap">
+      <div id="boardLoading">Loading board…</div>
+      <iframe id="boardFrame"></iframe>
+      <div id="tvFlash" class="display-only" style="display:none"><div><h1 id="tvFlashText"></h1></div></div>
+      <div id="hostAnswer"><div class="lbl">👁 Host only — correct response (not shown on TV)</div><div class="ans"></div></div>
+    </div>
+
+    <!-- ===== CONTROL sidebar ===== -->
+    <div id="ctrlSide" class="control-only" style="--co-disp:flex">
+      <div class="sec-head">🔔 BUZZERS</div>
+      <div id="buzzSetup">
+        <p class="status" id="buzzStatus">Buzzers not started.</p>
+        <button class="btn tv" style="width:100%" id="openBuzzBtn">🔔 Open Buzzer window</button>
+        <ol class="tiny" style="margin:10px 0 0;padding-left:18px;line-height:1.7">
+          <li>Click the button above — a <b>Buzzonk</b> window opens.</li>
+          <li>In that window, click <b style="color:var(--gold-bright)">“Create a room”</b> — you're now the host.</li>
+          <li>Read the join code (e.g. <i>buzzonk.com/ab12cd</i>) out to your players.</li>
+          <li><b style="color:var(--gold-bright)">To show buzzes on the TV:</b> drag that window onto the TV's
+              buzzer area. Keep the TV display <b>maximised, not full-screen</b>, so the window floats on top.
+              (Or just keep it on your laptop and call out who buzzed.)</li>
+          <li>Click <b>Reset</b> in that window between clues.</li>
+        </ol>
+        <p class="tiny" style="margin-top:8px;color:#8a93c8">Buzzonk only shows the buzz list to the host's own
+          window, which is why it can't live inside the TV page — but a floated window looks the same.</p>
+      </div>
+      <div class="sec-head">🏆 SCORES <span style="margin-left:auto;font-weight:400;color:#5b6394;text-transform:none">carry across boards</span></div>
+      <div id="ctrlScores"></div>
+      <div id="ctrlScoresFoot">
+        <button class="btn" id="addTeamBtn">+ Add team</button>
+        <button class="btn warn" id="resetScoresBtn">Reset scores</button>
+      </div>
+    </div>
+
+    <!-- ===== DISPLAY buzzer column ===== -->
+    <div id="dispBuzz" class="display-only" style="--do-disp:flex">
+      <div class="sec-head"><span class="dot" id="buzzDot"></span> BUZZERS</div>
+      <div id="buzzZone">
+        <div id="buzzZoneInner">
+          <div class="big">🔔</div>
+          <div id="buzzZoneTitle">Buzzers not started</div>
+          <div id="buzzZoneMsg">Open the Buzzer window from your control screen.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DISPLAY scores strip ===== -->
+  <div id="scoresStrip" class="display-only" style="--do-disp:flex">
+    <div class="lead"><span class="t">🏆 Scores</span></div>
+    <div id="dispScores" style="display:contents"></div>
+  </div>
+
+  <div id="overlay"><div class="card" id="overlayCard"></div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+/* =====================================================================
+   Trivia Night Jeopardy Console — two-window (Control + TV Display)
+   ?screen=control (default, your laptop)  |  ?screen=display (the TV)
+   Windows sync via localStorage + BroadcastChannel (same browser).
+   ===================================================================== */
+const params = new URLSearchParams(location.search);
+const SCREEN = params.get("screen") === "display" ? "display" : "control";
+document.body.dataset.screen = SCREEN;
+
+const STORE_KEY = "trivia_console_v2";
+const BOARDS = ["board1.html", "board2.html"];
+const bc = new BroadcastChannel("trivia_sync");
+
+const boardFrame  = document.getElementById("boardFrame");
+const boardLoading = document.getElementById("boardLoading");
+
+let state = loadState();
+let currentBoardSrc = null;
+let displayShownCell = null, displayRevealed = false;
+
+/* ---------- state ---------- */
+function defaultState(){
+  return {
+    teams:[{name:"Team 1",score:0},{name:"Team 2",score:0},{name:"Team 3",score:0}],
+    boardIndex:0, award:100,
+    buzzActive:false,
+    completedPrompted:[false,false],
+    boardView:{cellId:null,revealed:false,inerts:[]}
+  };
+}
+function loadState(){
+  try{ const s=JSON.parse(localStorage.getItem(STORE_KEY));
+    if(s&&Array.isArray(s.teams)) return Object.assign(defaultState(),s);
+  }catch(e){} return defaultState();
+}
+/* control writes shared state; display mostly reads. */
+function pushState(){ try{localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){}
+  bc.postMessage({type:"state",state}); }
+function pushBoardView(){ bc.postMessage({type:"boardView",view:state.boardView}); }
+
+bc.onmessage = (e)=>{
+  const m=e.data;
+  if(m.type==="state"){
+    const prevBoard=state.boardIndex, prevBuzz=state.buzzActive;
+    state=Object.assign(defaultState(),m.state);
+    renderScores(); updateChrome();
+    if(state.boardIndex!==prevBoard) ensureBoard();
+    if(SCREEN==="display" && prevBuzz!==state.buzzActive) updateBuzzer();
+  } else if(m.type==="boardView" && SCREEN==="display"){
+    state.boardView=m.view; applyDisplayBoardView(m.view);
+  } else if(m.type==="ping" && SCREEN==="control"){
+    // a TV window just opened/refreshed — send it the current state so it catches up
+    lastViewKey=""; pushState(); pushBoardView();
+  }
+};
+function escapeAttr(s){ return String(s).replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+/* ---------- board loading / setup ---------- */
+function ensureBoard(){
+  const want=BOARDS[state.boardIndex];
+  if(currentBoardSrc!==want){ currentBoardSrc=want; boardLoading.style.display="flex";
+    displayShownCell=null; displayRevealed=false; boardFrame.src=want; }
+}
+function bDoc(){ try{return boardFrame.contentDocument;}catch(e){return null;} }
+function bWin(){ try{return boardFrame.contentWindow;}catch(e){return null;} }
+function setupBoard(){
+  const d=bDoc(),w=bWin(); if(!d||!w)return;
+  if(!d.getElementById("__cc")){
+    const st=d.createElement("style");st.id="__cc";
+    st.textContent="#teams{display:none!important;}#options{display:none!important;}.menu-picker{display:none!important;}"
+      + "#gameplay{filter:none!important;}"   /* never let the board re-blur on close/back */
+      + (SCREEN==="display" ? ".grid-row-questions .grid-cell{pointer-events:none!important;}" : "");
+    d.head.appendChild(st);
+  }
+  try{w.renderState({page:"game"});}catch(e){}
+  try{d.getElementById("gameplay").style.filter="none";}catch(e){}
+  try{w.dispatchEvent(new Event("resize"));}catch(e){}
+  if(SCREEN==="control"){ try{w.do_autoplay=false;}catch(e){} }   // TV plays media; laptop stays quiet
+  else { try{w.do_autoplay=true;}catch(e){}
+         // renderState() above closes any modal, so re-sync the mirror from scratch
+         displayShownCell=null; displayRevealed=false;
+         if(state.boardView) applyDisplayBoardView(state.boardView);
+         bc.postMessage({type:"ping"}); }   // board is ready — ask control to re-send current view
+  boardLoading.style.display="none";
+}
+boardFrame.addEventListener("load",()=>{ boardLoading.style.display="flex";
+  setTimeout(setupBoard,120); setTimeout(setupBoard,550); setTimeout(setupBoard,1200); });
+
+/* ---- CONTROL: read what question is open, broadcast to TV ---- */
+function readBoardView(){
+  const d=bDoc(),w=bWin(); if(!d||!w)return null;
+  let open=false; try{open=!!w.modal.is_open;}catch(e){}
+  let cellId=null,revealed=false;
+  if(open){
+    const aq=d.querySelector(".active-question"); cellId=aq?aq.id:null;
+    const q=d.querySelector("#question-modal .question");
+    revealed=!!(q&&(q.classList.contains("reveal")||q.style.display==="block"));
+  }
+  const inerts=[...d.querySelectorAll(".grid-row-questions .grid-cell.inert")].map(c=>c.id).filter(Boolean);
+  return {cellId,revealed,inerts};
+}
+function openQuestionPoints(){
+  const d=bDoc(),w=bWin(); if(!d||!w)return null;
+  let open=false; try{open=!!w.modal.is_open;}catch(e){}
+  if(!open)return null;
+  const el=d.querySelector(".active-question .cell.points .cell-inner")||d.querySelector(".active-question .cell-inner");
+  if(!el)return null;
+  const n=parseInt(el.innerText.replace(/[^0-9]/g,""),10); return isNaN(n)?null:n;
+}
+function boardComplete(){
+  const d=bDoc(); if(!d)return false; let total=0,done=0;
+  d.querySelectorAll(".grid-row-questions .grid-cell").forEach(c=>{
+    const p=c.querySelector(".cell.points .cell-inner");
+    if(!p||!/[0-9]/.test(p.innerText))return; total++; if(c.classList.contains("inert"))done++;});
+  return total>0&&done>=total;
+}
+
+/* ---- DISPLAY: mirror the open question onto the TV board ---- */
+function applyDisplayBoardView(view){
+  const d=bDoc(),w=bWin(); if(!d||!w||!view)return;
+  (view.inerts||[]).forEach(id=>{const el=d.getElementById(id);if(el)el.classList.add("inert");});
+  if(view.cellId){
+    const cell=d.getElementById(view.cellId);
+    if(cell && displayShownCell!==view.cellId){
+      try{w.hideModal&&w.hideModal();}catch(e){}
+      let ok=false;
+      try{ w.modal.show(cell,true); ok=!!w.modal.is_open; }catch(e){ ok=false; }  // commit only on success
+      if(ok){ displayShownCell=view.cellId; displayRevealed=false; }
+    }
+    if(displayShownCell===view.cellId && view.revealed && !displayRevealed){ try{w.modal.reveal();}catch(e){} displayRevealed=true; }
+  } else if(displayShownCell){
+    try{w.hideModal&&w.hideModal();}catch(e){}
+    displayShownCell=null; displayRevealed=false;
+  }
+}
+
+/* ---------- poll loop (control drives everything) ---------- */
+let lastViewKey="", lastPts=null;
+if(SCREEN==="control"){
+  setInterval(()=>{
+    const v=readBoardView(); if(!v)return;
+    updateHostAnswer(v.cellId);
+    const key=JSON.stringify(v);
+    if(key!==lastViewKey){ lastViewKey=key; state.boardView=v; pushBoardView(); }
+    const pts=openQuestionPoints();
+    if(pts!==null&&pts!==lastPts){ state.award=pts; const ai=document.getElementById("awardInput"); if(ai)ai.value=pts; pushState(); }
+    lastPts=pts;
+    if(boardComplete()&&!state.completedPrompted[state.boardIndex]){
+      state.completedPrompted[state.boardIndex]=true; pushState(); onBoardComplete();
+    }
+  },160);
+}
+
+/* ---------- scoreboard ---------- */
+function currentAward(){ const ai=document.getElementById("awardInput"); const v=parseInt(ai?ai.value:state.award,10); return isNaN(v)?0:v; }
+function renderScores(){
+  const maxScore=Math.max(...state.teams.map(t=>t.score));
+  const isLeader=t=>state.teams.length>1&&t.score===maxScore&&t.score!==0;
+  // control list
+  const list=document.getElementById("ctrlScores");
+  if(list){
+    list.innerHTML="";
+    state.teams.forEach((t,i)=>{
+      const row=document.createElement("div");
+      row.className="crow"+(isLeader(t)?" leader":"");
+      row.innerHTML=`<button class="remove">✕</button>
+        <input class="tname" value="${escapeAttr(t.name)}" spellcheck="false">
+        <div class="tscore">${t.score}</div>
+        <div class="ctrls"><button class="pm minus">−</button><button class="pm plus">+</button></div>`;
+      const nm=row.querySelector(".tname"), sc=row.querySelector(".tscore");
+      nm.addEventListener("input",()=>{state.teams[i].name=nm.value;pushState();});
+      sc.addEventListener("dblclick",()=>{sc.contentEditable="true";sc.focus();try{getSelection().selectAllChildren(sc);}catch(e){}});
+      sc.addEventListener("blur",()=>{sc.contentEditable="false";const v=parseInt(sc.innerText.replace(/[^\-0-9]/g,""),10);state.teams[i].score=isNaN(v)?0:v;pushState();renderScores();});
+      sc.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sc.blur();}});
+      row.querySelector(".plus").addEventListener("click",()=>adjust(i,+currentAward()));
+      row.querySelector(".minus").addEventListener("click",()=>adjust(i,-currentAward()));
+      row.querySelector(".remove").addEventListener("click",()=>{if(state.teams.length<=1)return;state.teams.splice(i,1);pushState();renderScores();});
+      list.appendChild(row);
+    });
+  }
+  // display strip
+  const strip=document.getElementById("dispScores");
+  if(strip){
+    strip.innerHTML="";
+    state.teams.forEach(t=>{
+      const c=document.createElement("div");
+      c.className="dcard"+(isLeader(t)?" leader":"");
+      c.innerHTML=`<span class="crown">👑</span><div class="dn">${escapeAttr(t.name)}</div><div class="ds">${t.score}</div>`;
+      strip.appendChild(c);
+    });
+  }
+}
+function adjust(i,delta){
+  if(!delta)return;
+  state.teams[i].score+=delta;
+  markCurrentAnswered(); pushState(); renderScores();
+  const row=document.querySelectorAll("#ctrlScores .crow")[i];
+  if(row){const el=row.querySelector(".tscore");el.style.color=delta>0?"#7CFC9B":"#ff8a7a";el.style.transform="scale(1.18)";
+    setTimeout(()=>{el.style.transition=".4s";el.style.color="";el.style.transform="";},20);}
+}
+function markCurrentAnswered(){ const d=bDoc(); if(!d)return; const c=d.querySelector(".active-question"); if(c)c.classList.add("inert"); }
+
+/* ---- CONTROL: show the correct response to the host only (never on TV) ---- */
+let hostAnsCell=null;
+function updateHostAnswer(cellId){
+  const box=document.getElementById("hostAnswer"); if(!box)return;
+  if(cellId){
+    if(cellId!==hostAnsCell){
+      hostAnsCell=cellId;
+      const d=bDoc(); const cell=d&&d.getElementById(cellId);
+      const q=cell&&cell.querySelector(".question");
+      box.querySelector(".ans").innerHTML = (q&&q.innerHTML.trim()) ? q.innerHTML : "(press Reveal to see)";
+      box.style.display="block";
+    }
+  } else if(hostAnsCell!==null){ hostAnsCell=null; box.style.display="none"; }
+}
+
+/* ---------- board switching / completion (control) ---------- */
+function loadBoard(index){ state.boardIndex=index; state.boardView={cellId:null,revealed:false,inerts:[]}; pushState(); ensureBoard(); updateChrome(); }
+function updateChrome(){
+  const tag=document.getElementById("boardTag"); if(tag)tag.textContent=`Board ${state.boardIndex+1} of ${BOARDS.length}`;
+  const nb=document.getElementById("nextBtn"); if(nb)nb.textContent=state.boardIndex<BOARDS.length-1?`Board ${state.boardIndex+2} →`:"🏁 Final results";
+  const ai=document.getElementById("awardInput"); if(ai&&document.activeElement!==ai)ai.value=state.award;
+  refreshBuzzStatus();
+}
+function goNext(){ if(state.boardIndex<BOARDS.length-1){ const n=state.boardIndex+2; loadBoard(state.boardIndex+1); hideOverlay(); toast(`Now on Board ${n-1} — scores carried over`);} else showFinal(); }
+function onBoardComplete(){
+  if(state.boardIndex<BOARDS.length-1){
+    showOverlay(`<h1>✅ Board ${state.boardIndex+1} complete!</h1>
+      <p class="sub">Every question has been played. Scores carry over automatically.</p>${scoresSummaryHTML()}
+      <div class="actions"><button class="btn" onclick="hideOverlay()">Stay here</button>
+        <button class="btn primary" onclick="goNext()">Continue to Board ${state.boardIndex+2} →</button></div>`);
+  } else showFinal();
+}
+
+/* ---------- overlays (control) ---------- */
+const overlay=document.getElementById("overlay"), overlayCard=document.getElementById("overlayCard");
+function showOverlay(h){ overlayCard.innerHTML=h; overlay.classList.add("show"); }
+function hideOverlay(){ overlay.classList.remove("show"); }
+function scoresSummaryHTML(){ const s=[...state.teams].sort((a,b)=>b.score-a.score);
+  return `<div style="display:flex;flex-direction:column;gap:6px">`+s.map(t=>`<div style="display:flex;justify-content:space-between;background:#0c1338;border:1px solid var(--line);border-radius:8px;padding:8px 14px"><span>${escapeAttr(t.name)}</span><b style="color:var(--gold-bright)">${t.score}</b></div>`).join("")+`</div>`; }
+function showFinal(){
+  const s=[...state.teams].sort((a,b)=>b.score-a.score),m=["🥇","🥈","🥉"],o=[1,0,2];
+  const pods=o.filter(i=>s[i]).map(i=>{const t=s[i],h=[150,120,95][i]||95;return `<div class="pod" style="height:${h}px"><div class="rk">${m[i]||("#"+(i+1))}</div><div class="pn">${escapeAttr(t.name)}</div><div class="ps">${t.score}</div></div>`;}).join("");
+  const rest=s.slice(3).map((t,idx)=>`<div style="display:flex;justify-content:space-between;background:#0c1338;border:1px solid var(--line);border-radius:8px;padding:6px 14px;margin-top:6px"><span>#${idx+4} ${escapeAttr(t.name)}</span><b style="color:var(--gold-bright)">${t.score}</b></div>`).join("");
+  showOverlay(`<h1>🏁 Final Scores</h1><p class="sub">${s[0]?"Winner: <b style='color:var(--gold-bright)'>"+escapeAttr(s[0].name)+"</b>":""}</p><div id="podium">${pods}</div>${rest}<div class="actions"><button class="btn" onclick="hideOverlay()">Close</button><button class="btn" onclick="loadBoard(0);hideOverlay()">↺ Back to Board 1</button></div>`);
+}
+function showSetup(){
+  showOverlay(`<h1>⚙ Setup</h1><p class="sub">Teams &amp; scores carry across both boards automatically.</p>
+    <h2>Teams</h2><div id="setupTeams"></div><button class="btn" onclick="addTeam(true)">+ Add team</button>
+    <h2>Board</h2><div class="field"><label>Jump to board</label>
+      <button class="btn ${state.boardIndex===0?'primary':''}" onclick="loadBoard(0)">Board 1</button>
+      <button class="btn ${state.boardIndex===1?'primary':''}" onclick="loadBoard(1)">Board 2</button></div>
+    <h2>TV display</h2><div class="field"><label>Presentation screen</label>
+      <button class="btn tv" onclick="openTv()">🖥 Open / focus TV window</button></div>
+    <p class="tiny">Drag that window onto your TV and press its ⛶ Fullscreen. It shows only the board, buzzers and scores.</p>
+    <h2>Danger zone</h2><div class="field">
+      <button class="btn warn" onclick="if(confirm('Reset ALL scores to 0?'))resetScores()">Reset scores</button>
+      <button class="btn warn" onclick="if(confirm('Full reset: teams, scores, boards, buzzers?'))fullReset()">Reset everything</button></div>
+    <div class="actions"><button class="btn primary" onclick="hideOverlay()">Done</button></div>`);
+  renderSetupTeams();
+}
+function renderSetupTeams(){ const box=document.getElementById("setupTeams"); if(!box)return; box.innerHTML="";
+  state.teams.forEach((t,i)=>{ const row=document.createElement("div");row.className="editrow";
+    row.innerHTML=`<input value="${escapeAttr(t.name)}" spellcheck="false"><input type="number" style="max-width:110px" value="${t.score}"><button class="btn warn" style="padding:6px 10px">✕</button>`;
+    const[nm,sc]=row.querySelectorAll("input");
+    nm.addEventListener("input",()=>{state.teams[i].name=nm.value;pushState();renderScores();});
+    sc.addEventListener("input",()=>{state.teams[i].score=parseInt(sc.value,10)||0;pushState();renderScores();});
+    row.querySelector("button").addEventListener("click",()=>{if(state.teams.length<=1)return;state.teams.splice(i,1);pushState();renderSetupTeams();renderScores();});
+    box.appendChild(row); }); }
+function addTeam(fromSetup){ state.teams.push({name:"Team "+(state.teams.length+1),score:0});pushState();renderScores();if(fromSetup)renderSetupTeams(); }
+function resetScores(){ state.teams.forEach(t=>t.score=0);state.completedPrompted=[false,false];pushState();renderScores();if(document.getElementById("setupTeams"))renderSetupTeams();toast("Scores reset"); }
+function fullReset(){ state=defaultState();pushState();renderScores();updateChrome();ensureBoard();updateBuzzer&&updateBuzzer();hideOverlay(); }
+
+/* ---------- buzzers (runs in a first-party pop-out window) ---------- */
+let buzzWin=null;
+function openBuzzers(){
+  buzzWin=window.open("https://buzzonk.com/","buzzerHost","width=340,height=820");
+  if(buzzWin){ buzzWin.focus(); state.buzzActive=true; pushState(); refreshBuzzStatus(); }
+  else toast("Allow pop-ups for this page, then click again");
+}
+function refreshBuzzStatus(){
+  const el=document.getElementById("buzzStatus"); if(!el)return;
+  el.innerHTML = state.buzzActive
+    ? "Buzzer window is <b>open</b>. Create a room in it, then drag it onto the TV's buzzer area."
+    : "Buzzers not started.";
+}
+/* DISPLAY side — placeholder / drop-zone for the floated buzzer window */
+function updateBuzzer(){
+  if(SCREEN!=="display")return;
+  const zone=document.getElementById("buzzZone"), title=document.getElementById("buzzZoneTitle"),
+        msg=document.getElementById("buzzZoneMsg"), dot=document.getElementById("buzzDot");
+  if(!zone)return;
+  if(state.buzzActive){
+    zone.classList.add("active");
+    title.textContent="Buzzers are live";
+    msg.innerHTML="Drag the <b>Buzzonk</b> window here to show the buzz list,<br>or keep it on the laptop.<br><br>Players join at <b>buzzonk.com</b> with the room code.";
+    if(dot)dot.style.background="var(--good)";
+  } else {
+    zone.classList.remove("active");
+    title.textContent="Buzzers not started";
+    msg.innerHTML="Open the <b>Buzzer window</b> from your control screen.";
+    if(dot)dot.style.background="var(--bad)";
+  }
+}
+
+/* ---------- TV window ---------- */
+let tvWin=null;
+function openTv(){ tvWin=window.open("index.html?screen=display","triviaTV"); if(tvWin){tvWin.focus(); setTimeout(pushState,400);} else toast("Allow pop-ups for this page, then retry"); }
+
+/* ---------- toast ---------- */
+let toastT=null;
+function toast(msg){ const el=document.getElementById("toast"); el.textContent=msg; el.style.display="block"; clearTimeout(toastT); toastT=setTimeout(()=>el.style.display="none",2800); }
+
+/* ---------- wire control buttons ---------- */
+if(SCREEN==="control"){
+  document.getElementById("openTvBtn").addEventListener("click",openTv);
+  document.getElementById("nextBtn").addEventListener("click",goNext);
+  document.getElementById("setupBtn").addEventListener("click",showSetup);
+  document.getElementById("editBtn").addEventListener("click",function(){document.body.classList.toggle("editing");this.classList.toggle("primary");});
+  document.getElementById("fsBtn").addEventListener("click",()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();});
+  document.getElementById("addTeamBtn").addEventListener("click",()=>addTeam(false));
+  document.getElementById("resetScoresBtn").addEventListener("click",()=>{if(confirm("Reset all scores to 0?"))resetScores();});
+  document.getElementById("openBuzzBtn").addEventListener("click",openBuzzers);
+  const ai=document.getElementById("awardInput");
+  ai.addEventListener("change",()=>{ if(currentAward()<0)ai.value=0; state.award=currentAward(); pushState(); });
+}
+
+/* ---------- boot ---------- */
+renderScores(); updateChrome(); ensureBoard();
+if(SCREEN==="display"){ updateBuzzer(); bc.postMessage({type:"ping"}); }
+</script>
+</body>
+</html>
