@@ -162,23 +162,39 @@
     <div id="ctrlSide" class="control-only" style="--co-disp:flex">
       <div class="sec-head">🔔 BUZZERS</div>
       <div id="buzzSetup">
-        <button class="btn tv" style="width:100%" id="openHostBtn">① Open buzzer controls ↗</button>
-        <p class="tiny" style="margin:8px 0 0">Opens the buzzer host page — click <b style="color:var(--gold-bright)">Create a room</b>
-          there, then copy the <b>room code</b> below.</p>
-        <div class="row" style="margin-top:10px">
-          <input id="roomCodeInput" placeholder="② room code (e.g. GBX5)" autocomplete="off" style="text-transform:uppercase">
-          <button class="btn primary sm" id="applyCodeBtn">Apply</button>
+        <button class="btn tv" style="width:100%" id="createRoomBtn">🔔 Create buzzer room</button>
+
+        <div id="roomInfo" style="display:none;margin-top:10px">
+          <div style="text-align:center">
+            <div class="tiny">Players join at</div>
+            <div id="joinLinkText" style="font-size:12px;color:#ffe9a8;word-break:break-all;margin:2px 0"></div>
+            <div id="codeBig" style="font-size:26px;font-weight:900;letter-spacing:3px;color:var(--gold-bright)"></div>
+          </div>
+          <div id="qrBox" style="display:flex;justify-content:center;margin:8px 0;background:#fff;border-radius:8px;padding:6px;min-height:8px"></div>
+          <div class="row">
+            <button class="btn sm" id="copyLinkBtn" style="flex:1">Copy join link</button>
+            <button class="btn sm" id="disconnectBtn" title="Disconnect">✕</button>
+          </div>
+          <div class="row" id="buzzControls" style="margin-top:8px">
+            <button class="btn tv sm" id="armBtn" style="flex:2">🔔 Open buzzers</button>
+            <button class="btn sm" id="reopenBtn" title="Re-open (same question)">↻</button>
+            <button class="btn warn sm" id="lockBtn">🔒</button>
+          </div>
+          <p class="status" id="buzzStatus" style="margin-top:8px"></p>
+          <p class="tiny" style="margin-top:6px;color:#8a93c8">Players who join are <b>added as teams automatically</b>.
+            Hit <b>Open buzzers</b> before each question — first to buzz shows on the TV.</p>
         </div>
-        <p class="status" id="buzzStatus" style="margin-top:10px">Not connected.</p>
-        <div class="row" id="buzzControls" style="display:none">
-          <button class="btn tv sm" id="armBtn" style="flex:1">🔔 Open</button>
-          <button class="btn sm" id="reopenBtn">↻</button>
-          <button class="btn warn sm" id="lockBtn">🔒</button>
-        </div>
-        <input id="hostTokenInput" placeholder="host token (optional — to control from here)" autocomplete="off"
-          style="width:100%;margin-top:8px;font-size:12px">
-        <p class="tiny" style="margin-top:8px;color:#8a93c8">Players who join the buzzer are <b>added as teams automatically</b>
-          (same name rejoins won't duplicate). The TV shows the live buzz list.</p>
+
+        <details style="margin-top:10px">
+          <summary class="tiny" style="cursor:pointer;color:#8a93c8">Use an existing room instead</summary>
+          <div class="row" style="margin-top:8px">
+            <input id="roomCodeInput" placeholder="room code" autocomplete="off" style="text-transform:uppercase">
+            <button class="btn sm" id="applyCodeBtn">Apply</button>
+          </div>
+          <input id="hostTokenInput" placeholder="host token (to control it from here)" autocomplete="off"
+            style="width:100%;margin-top:8px;font-size:12px">
+          <button class="btn sm" id="openHostBtn" style="width:100%;margin-top:8px">Open buzzer host page ↗</button>
+        </details>
       </div>
       <div class="sec-head">🏆 SCORES <span style="margin-left:auto;font-weight:400;color:#5b6394;text-transform:none">carry across boards</span></div>
       <div id="ctrlScores"></div>
@@ -208,6 +224,7 @@
     <div id="dispScores" style="display:contents"></div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <div id="overlay"><div class="card" id="overlayCard"></div></div>
   <div class="toast" id="toast"></div>
 
@@ -491,18 +508,49 @@ const BUZZER_BASE = "https://gameshow-mu.vercel.app";   // <-- your deployed buz
 let buzzSyncTimer=null;
 const cleanRoom = c => String(c||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6);
 
+const joinURL = ()=> BUZZER_BASE + "/?code=" + state.buzzerCode;
+/* Create + host a room straight from the console (no token hunting needed) */
+async function createRoom(){
+  const btn=document.getElementById("createRoomBtn"); if(btn){btn.disabled=true;btn.textContent="Creating…";}
+  let r=null;
+  try{ r=await fetch(BUZZER_BASE+"/api/create",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(x=>x.json()); }catch(e){}
+  if(btn){btn.disabled=false;btn.textContent="🔔 Create buzzer room";}
+  if(!r || !r.code){ toast("Couldn't reach the buzzer — check the internet"); return; }
+  state.buzzerCode=r.code; state.hostToken=r.hostToken; state.buzzSynced=false;
+  pushState(); renderRoomInfo(); refreshBuzzStatus(); startBuzzSync();
+  if(SCREEN==="display") updateBuzzer();
+}
 function applyRoomCode(code){
   state.buzzerCode = cleanRoom(code);
   state.buzzSynced = false;                 // allow default-team clear again for a fresh room
-  pushState(); refreshBuzzStatus();
+  pushState(); renderRoomInfo(); refreshBuzzStatus();
   if(SCREEN==="display") updateBuzzer();
   startBuzzSync();
+}
+function disconnectRoom(){
+  state.buzzerCode=""; state.hostToken="";
+  if(buzzSyncTimer){ clearInterval(buzzSyncTimer); buzzSyncTimer=null; }
+  pushState(); renderRoomInfo(); refreshBuzzStatus();
+  if(SCREEN==="display") updateBuzzer();
+}
+function renderRoomInfo(){
+  const info=document.getElementById("roomInfo"), createBtn=document.getElementById("createRoomBtn");
+  if(!info) return;
+  if(state.buzzerCode){
+    info.style.display="block"; if(createBtn) createBtn.style.display="none";
+    const c=document.getElementById("codeBig"); if(c) c.textContent=state.buzzerCode;
+    const l=document.getElementById("joinLinkText"); if(l) l.textContent=joinURL().replace(/^https?:\/\//,"");
+    const qb=document.getElementById("qrBox");
+    if(qb){ qb.innerHTML=""; try{ if(window.QRCode){ const cv=document.createElement("canvas"); qb.appendChild(cv);
+      QRCode.toCanvas(cv, joinURL(), {width:150,margin:1}, e=>{ if(e) qb.innerHTML="<span style='color:#333;font-size:11px'>link above</span>"; }); }
+      else qb.style.display="none"; }catch(e){ qb.style.display="none"; } }
+  } else { info.style.display="none"; if(createBtn) createBtn.style.display=""; }
 }
 function refreshBuzzStatus(){
   const el=document.getElementById("buzzStatus"); if(!el)return;
   const ctrls=document.getElementById("buzzControls");
   if(state.buzzerCode){
-    el.innerHTML = `Connected to room <b style="color:var(--gold-bright)">${state.buzzerCode}</b>.`;
+    el.innerHTML = `Room <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · connected`;
     if(ctrls) ctrls.style.display = state.hostToken ? "flex" : "none";
   } else { el.textContent="Not connected."; if(ctrls) ctrls.style.display="none"; }
 }
@@ -580,6 +628,9 @@ if(SCREEN==="control"){
   document.getElementById("fsBtn").addEventListener("click",()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();});
   document.getElementById("addTeamBtn").addEventListener("click",()=>addTeam(false));
   document.getElementById("resetScoresBtn").addEventListener("click",()=>{if(confirm("Reset all scores to 0?"))resetScores();});
+  document.getElementById("createRoomBtn").addEventListener("click",createRoom);
+  document.getElementById("copyLinkBtn").addEventListener("click",()=>{ navigator.clipboard.writeText(joinURL()).then(()=>toast("Join link copied")); });
+  document.getElementById("disconnectBtn").addEventListener("click",()=>{ if(confirm("Disconnect this buzzer room?"))disconnectRoom(); });
   document.getElementById("openHostBtn").addEventListener("click",()=>window.open(BUZZER_BASE+"/host","buzzerHost"));
   document.getElementById("applyCodeBtn").addEventListener("click",()=>applyRoomCode(document.getElementById("roomCodeInput").value));
   document.getElementById("roomCodeInput").addEventListener("keydown",e=>{ if(e.key==="Enter")applyRoomCode(e.target.value); });
@@ -597,7 +648,7 @@ renderScores(); updateChrome(); ensureBoard();
 if(SCREEN==="control"){
   const rc=document.getElementById("roomCodeInput"); if(rc&&state.buzzerCode) rc.value=state.buzzerCode;
   const ht=document.getElementById("hostTokenInput"); if(ht&&state.hostToken) ht.value=state.hostToken;
-  refreshBuzzStatus(); startBuzzSync();
+  renderRoomInfo(); refreshBuzzStatus(); startBuzzSync();
 }
 if(SCREEN==="display"){ updateBuzzer(); bc.postMessage({type:"ping"}); }
 </script>
