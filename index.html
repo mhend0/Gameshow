@@ -190,7 +190,7 @@
 
     <!-- ===== DISPLAY buzzer column ===== -->
     <div id="dispBuzz" class="display-only" style="--do-disp:flex">
-      <div class="sec-head"><span class="dot" id="buzzDot"></span> BUZZERS</div>
+      <div class="sec-head" id="buzzSecHead"><span class="dot" id="buzzDot"></span> BUZZERS</div>
       <div id="buzzZone">
         <div id="buzzZoneInner">
           <div class="big">🔔</div>
@@ -545,8 +545,10 @@ function hostAction(action){
 function updateBuzzer(){
   if(SCREEN!=="display")return;
   const zone=document.getElementById("buzzZone"), inner=document.getElementById("buzzZoneInner"),
-        frame=document.getElementById("buzzFrame"), dot=document.getElementById("buzzDot");
+        frame=document.getElementById("buzzFrame"), dot=document.getElementById("buzzDot"),
+        head=document.getElementById("buzzSecHead");
   if(!zone)return;
+  if(head) head.style.display = state.buzzerCode ? "none" : "";   // embedded buzzer has its own header
   if(state.buzzerCode){
     zone.classList.add("active");
     if(inner) inner.style.display="none";
