@@ -66,6 +66,44 @@
   .qm-hint { color: var(--text-2); font-size: 14px; font-weight: 600; letter-spacing: .02em; }
   .dd-flag { display: inline-flex; align-items: center; gap: 6px; color: var(--gold); }
 
+  /* ---- Daily Double splash — covers the clue until the host reveals it ---- */
+  #dd-splash { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; overflow: hidden;
+    background: radial-gradient(120% 120% at 50% 38%, #241638 0%, #0a0714 68%); }
+  #dd-splash.show { display: grid; }
+  .dd-rays { position: absolute; width: 230vmax; height: 230vmax; left: 50%; top: 50%; translate: -50% -50%;
+    background: repeating-conic-gradient(from 0deg, rgba(255,207,92,.12) 0deg 7deg, transparent 7deg 15deg);
+    animation: ddspin 20s linear infinite; opacity: .75; }
+  @keyframes ddspin { to { rotate: 360deg; } }
+  .dd-glow { position: absolute; width: 78vmin; height: 78vmin; left: 50%; top: 50%; translate: -50% -50%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,207,92,.4), transparent 62%); filter: blur(24px); animation: ddpulse 2.6s ease-in-out infinite; }
+  @keyframes ddpulse { 0%,100% { transform: scale(.9); opacity: .55; } 50% { transform: scale(1.1); opacity: 1; } }
+  .dd-inner { position: relative; z-index: 2; text-align: center; display: flex; flex-direction: column; align-items: center; gap: min(3vh, 20px); padding: 4vh 4vw; }
+  .dd-title { font-weight: 900; letter-spacing: .01em; line-height: .9; font-size: clamp(52px, 13vw, 190px);
+    background: linear-gradient(180deg, #fff7de 0%, #ffcf5c 42%, #f0a92a 74%, #ffe6a3 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 6px 0 rgba(0,0,0,.28)) drop-shadow(0 14px 34px rgba(255,180,40,.35));
+    animation: ddpop .72s cubic-bezier(.2,1.55,.35,1) both; }
+  @keyframes ddpop { 0% { opacity: 0; transform: scale(.2) rotate(-9deg); } 55% { transform: scale(1.09) rotate(2deg); } 100% { opacity: 1; transform: none; } }
+  .dd-cat { font-weight: 800; text-transform: uppercase; letter-spacing: .16em; color: #fff; font-size: clamp(15px, 2.6vw, 34px);
+    opacity: 0; animation: ddfade .5s .38s ease both; }
+  .dd-wager { font-weight: 800; color: #ffd873; font-size: clamp(18px, 2.9vw, 40px);
+    animation: ddfade .5s .58s ease both, ddwag 1.9s 1s ease-in-out infinite; }
+  @keyframes ddfade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @keyframes ddwag { 0%,100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.05); opacity: 1; } }
+  .dd-cta { margin-top: 4px; opacity: 0; animation: ddfade .5s .8s ease both; }
+  .dd-cta button { font: inherit; font-weight: 800; font-size: clamp(15px, 1.8vw, 21px); color: #2a1a02; cursor: pointer;
+    background: linear-gradient(180deg, #ffe08a, #ffc23d); border: none; border-radius: 999px; padding: 13px 28px;
+    box-shadow: 0 12px 34px -8px rgba(255,180,40,.75), inset 0 1px 0 rgba(255,255,255,.55); transition: transform .15s var(--ease), filter .15s; }
+  .dd-cta button:hover { transform: translateY(-2px); filter: brightness(1.05); }
+  .dd-cta button:active { transform: translateY(0); }
+  .dd-hint { color: rgba(255,255,255,.5); font-size: 14px; font-weight: 600; letter-spacing: .02em; min-height: 18px; }
+  .dd-spark { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: #ffe9a8;
+    box-shadow: 0 0 12px 3px rgba(255,220,120,.9); opacity: 0; animation: ddspark 1.7s ease-in-out infinite; }
+  @keyframes ddspark { 0%,100% { opacity: 0; transform: scale(.3); } 50% { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .dd-rays, .dd-glow, .dd-wager, .dd-spark, .dd-title { animation-duration: .001ms !important; }
+  }
+
   .board-error { color: var(--text-1); text-align: center; margin: 20vh auto; font-family: var(--font); }
 </style>
 </head>
@@ -78,6 +116,20 @@
     <div class="question"></div>
     <div class="qm-hint"></div>
   </div></div>
+
+  <!-- Daily Double splash: shown on top of the (already-loaded) clue so the
+       question stays hidden until the host reveals it. -->
+  <div id="dd-splash">
+    <div class="dd-rays"></div>
+    <div class="dd-glow"></div>
+    <div class="dd-inner">
+      <div class="dd-title">DAILY<br>DOUBLE!</div>
+      <div class="dd-cat"></div>
+      <div class="dd-wager">Place your wagers…</div>
+      <div class="dd-cta"><button type="button" id="ddRevealBtn">Reveal the Clue&nbsp;→</button></div>
+      <div class="dd-hint"></div>
+    </div>
+  </div>
 
   <!-- Empty stubs the console's injected CSS expects to hide (harmless if unused). -->
   <div id="teams" style="display:none"></div>
@@ -184,11 +236,38 @@
       return wrap;
     }
 
+    /* ---------- Daily Double splash ---------- */
+    const ddSplash = document.getElementById("dd-splash");
+    // Sync the "reveal clue" moment between the Control window and the TV window
+    // (both same-origin iframes). The console mirrors open/answer-reveal already;
+    // this only carries the intermediate wager→clue step.
+    const playChannel = ("BroadcastChannel" in window) ? new BroadcastChannel("gsp-play") : null;
+
+    // scatter a few twinkling sparkles once
+    for (let i = 0; i < 14; i++) {
+      const s = document.createElement("span");
+      s.className = "dd-spark";
+      s.style.left = (7 + Math.random() * 86) + "%";
+      s.style.top = (12 + Math.random() * 76) + "%";
+      s.style.animationDelay = (Math.random() * 1.7).toFixed(2) + "s";
+      ddSplash.appendChild(s);
+    }
+
+    function openDailyDouble(cell) {
+      ddSplash.querySelector(".dd-cat").textContent = cell._catName || "";
+      ddSplash.querySelector(".dd-cta").style.display = isHost() ? "" : "none";
+      ddSplash.querySelector(".dd-hint").textContent = isHost() ? "Lock in every player's wager — then reveal." : "";
+      ddSplash.classList.remove("show"); void ddSplash.offsetWidth;   // restart entrance
+      ddSplash.classList.add("show");
+      if (isHost()) playFanfare();
+    }
+
     /* ---------- modal (console-driven) ---------- */
     let activeCell = null;
 
     const modal = {
       is_open: false,
+      phase: "clue",   // "clue" | "dd-wager" | "dd-clue"
       show(cell) {
         if (!cell || !cell._clue) return;
         if (activeCell && activeCell !== cell) this.hide();
@@ -210,11 +289,22 @@
         const q = modalEl.querySelector(".question");
         q.className = "question"; q.style.display = "none"; q.innerHTML = "";
         modalEl.querySelector(".qm-hint").textContent = "Reveal Correct Response  ·  Space";
-        modalEl.classList.add("open");
+        modalEl.classList.add("open");     // clue is loaded underneath…
         this.is_open = true;
+
+        if (clue.dailyDouble) { this.phase = "dd-wager"; openDailyDouble(cell); }   // …but covered by the splash
+        else { this.phase = "clue"; ddSplash.classList.remove("show"); }
+      },
+      // Daily Double: dismiss the splash to reveal the clue everyone can now see.
+      showClue(broadcast = true) {
+        if (this.phase !== "dd-wager") return;
+        this.phase = "dd-clue";
+        ddSplash.classList.remove("show");
+        if (broadcast && playChannel && activeCell) playChannel.postMessage({ type: "ddShowClue", cellId: activeCell.id });
       },
       reveal() {
         if (!activeCell) return;
+        if (this.phase === "dd-wager") this.showClue(false);   // safety: never reveal the answer over the splash
         const clue = activeCell._clue;
         const q = modalEl.querySelector(".question");
         q.innerHTML = "";
@@ -231,13 +321,39 @@
       },
       hide() {
         modalEl.classList.remove("open");
+        ddSplash.classList.remove("show");
         const q = modalEl.querySelector(".question");
         q.classList.remove("reveal"); q.style.display = "none"; q.innerHTML = "";
         modalEl.querySelector(".qm-media").innerHTML = "";
         if (activeCell) activeCell.classList.remove("active-question");
-        activeCell = null; this.is_open = false;
+        activeCell = null; this.is_open = false; this.phase = "clue";
       },
     };
+
+    // TV window: advance to the clue when the host does (console can't carry this step).
+    if (playChannel) playChannel.onmessage = (e) => {
+      const m = e.data;
+      if (m && m.type === "ddShowClue" && activeCell && activeCell.id === m.cellId && modal.phase === "dd-wager") {
+        modal.showClue(false);
+      }
+    };
+
+    // A short rising fanfare on the host's window (gesture-backed, so it's allowed).
+    let audioCtx;
+    function playFanfare() {
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const t0 = audioCtx.currentTime;
+        [[523.25, 0], [659.25, .11], [783.99, .22], [1046.5, .34]].forEach(([f, t]) => {
+          const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+          o.type = "triangle"; o.frequency.value = f;
+          g.gain.setValueAtTime(0, t0 + t);
+          g.gain.linearRampToValueAtTime(.22, t0 + t + .02);
+          g.gain.exponentialRampToValueAtTime(.001, t0 + t + .5);
+          o.connect(g); g.connect(audioCtx.destination); o.start(t0 + t); o.stop(t0 + t + .55);
+        });
+      } catch (e) { /* audio blocked — visuals carry it */ }
+    }
 
     function appendMedia(box, res, isAnswer) {
       let node;
@@ -255,23 +371,24 @@
     /* ---------- local interaction (host's own window only) ----------
        The TV mirror never fires these: the console disables cell pointer-events
        and the TV window isn't focused for keys. */
+    // One host "advance" gesture: wager splash → clue → answer → close.
+    function hostAdvance() {
+      if (!modal.is_open) return;
+      if (modal.phase === "dd-wager") { modal.showClue(); return; }
+      const revealed = modalEl.querySelector(".question.reveal");
+      if (!revealed) modal.reveal(); else modal.hide();
+    }
+
     document.addEventListener("keydown", (e) => {
       if (!isHost()) return;
       if (e.key === " " || e.key === "Enter") {
-        if (modal.is_open) {
-          e.preventDefault();
-          const revealed = modalEl.querySelector(".question.reveal");
-          if (!revealed) modal.reveal(); else modal.hide();
-        }
+        if (modal.is_open) { e.preventDefault(); hostAdvance(); }
       } else if (e.key === "Escape") {
         if (modal.is_open) { e.preventDefault(); modal.hide(); }
       }
     });
-    modalEl.addEventListener("click", () => {
-      if (!isHost()) return;
-      const revealed = modalEl.querySelector(".question.reveal");
-      if (!revealed) modal.reveal(); else modal.hide();
-    });
+    modalEl.addEventListener("click", () => { if (isHost()) hostAdvance(); });
+    ddSplash.addEventListener("click", () => { if (isHost()) hostAdvance(); });
 
     function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   </script>
