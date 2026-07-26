@@ -134,11 +134,33 @@
   #buzzFirst .bn{font-size:38px;font-weight:900;color:var(--gold-bright);line-height:1.1;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #buzzFirst .bn small{font-size:20px;font-weight:700;color:#fff;margin-left:12px;}
+  /* Quick Answer: the whole running order, not just the leader */
+  #buzzFirst .bn-list{display:flex;flex-wrap:wrap;gap:6px 20px;font-size:26px;white-space:normal;}
+  #buzzFirst .bn-list .bo{color:#fff;font-weight:800;}
+  #buzzFirst .bn-list .bo b{color:var(--gold-bright);margin-right:6px;}
   /* Control: two console windows can't both drive the TV — say so, loudly */
   #dupWarn{position:fixed;top:0;left:0;right:0;z-index:200;align-items:center;justify-content:center;gap:14px;
     padding:10px 16px;background:linear-gradient(180deg,#5a1111,#3a0a0a);border-bottom:3px solid var(--bad);
     color:#ffd9d9;font-size:15px;font-weight:700;text-align:center;}
   #dupWarn button{margin-left:10px;}
+  /* Quick Answer: submissions fastest-first, marked one at a time */
+  #answerQueue{background:var(--panel);border-top:2px solid var(--gold);padding:8px 12px 10px;}
+  #answerQueue .aq-head{display:flex;align-items:baseline;gap:10px;font-size:12px;font-weight:800;
+    letter-spacing:1px;color:var(--gold-bright);margin-bottom:6px;}
+  #answerQueue .aq-head .tiny{font-weight:600;letter-spacing:0;}
+  .aq-row{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;margin-bottom:4px;
+    border:1px solid transparent;background:#04061a;}
+  .aq-row .aq-rank{font-size:18px;min-width:28px;text-align:center;}
+  .aq-row .aq-who{font-weight:800;font-size:14px;min-width:120px;color:#c7ccf0;}
+  .aq-row .aq-text{flex:1;min-width:0;font-size:19px;font-weight:800;color:#fff;word-break:break-word;}
+  .aq-row .aq-acts{display:flex;gap:6px;}
+  /* The one you're judging right now — everything below it waits its turn. */
+  .aq-row.aq-live{border-color:var(--gold);background:rgba(255,204,0,.08);}
+  .aq-row.aq-wait{opacity:.45;}
+  .aq-row.aq-wait .aq-acts{visibility:hidden;}
+  .aq-row.aq-done{opacity:.4;text-decoration:line-through;}
+  .aq-row.aq-done .aq-acts{visibility:hidden;}
+  .aq-empty{font-size:13px;color:#8a93c8;padding:2px 4px;}
   /* Control banner naming the first buzzer */
   #buzzBanner{position:absolute;top:0;left:0;right:0;z-index:19;align-items:center;justify-content:space-between;gap:12px;
     padding:8px 14px;background:linear-gradient(180deg,#3a2c08,#241a05);border-bottom:2px solid var(--gold-bright);
@@ -338,6 +360,9 @@
     </div>
   </div>
 
+  <!-- ===== CONTROL answer queue (Quick Answer mode) — sits with the scoring bar ===== -->
+  <div id="answerQueue" class="control-only" style="--co-disp:block;display:none"></div>
+
   <!-- ===== CONTROL scoring bar (under the board, where the host's hands are) ===== -->
   <div id="ctrlScoreBar" class="control-only" style="--co-disp:flex">
     <div class="sb-head">
@@ -466,7 +491,7 @@ function defaultState(){
     teams:[{name:"Team 1",score:0},{name:"Team 2",score:0},{name:"Team 3",score:0}],
     boardIndex:0, award:100, boards:[], played:{}, droppedTeams:[], podium:false,
     buzzerCode:"", hostToken:"", buzzSynced:false,
-    buzzedName:"", qrOverlay:false,
+    buzzedName:"", buzzMode:"buzz", buzzOrder:[], qrOverlay:false,
     completedPrompted:[false,false],
     boardView:{cellId:null,revealed:false,inerts:[]}
   };
@@ -655,13 +680,35 @@ function setBuzzedName(name){
   if(state.buzzedName===name) return;
   state.buzzedName=name; pushState();
 }
+/* The TV shows the whole running order in Quick Answer mode (names only — never
+   the typed text, or teams would just read each other's answers off the screen). */
+function setBuzzOrder(names){
+  if(JSON.stringify(state.buzzOrder||[])===JSON.stringify(names)) return;
+  state.buzzOrder=names; pushState();
+}
+function setBuzzMode(m){
+  const mode = m==="answer" ? "answer" : "buzz";
+  if(state.buzzMode===mode) return;
+  state.buzzMode=mode; answerCursor=0; pushState();
+  pushBuzzMode();
+  renderAnswerQueue(); showSetup();            // re-render the overlay so the active button updates
+  toast(mode==="answer" ? "⌨️ Quick Answer — players type their answers" : "🔔 Quick Buzz — players tap to buzz");
+}
+/* Tell the room which game the phones should be showing. Safe to call any time;
+   it no-ops until a room is connected with a host token. */
+function pushBuzzMode(){
+  if(!state.buzzerCode || !state.hostToken) return;
+  hostAction("mode",{mode:state.buzzMode==="answer"?"answer":"buzz"});
+}
 /* Clear the name and start a clean buzz round. Arming bumps the round server-side;
    until the poll sees that, ignore the buzzes still sitting on the current round. */
 function clearBuzzedName(){
   setBuzzedName("");
-  lastBuzzes=[];
+  setBuzzOrder([]);
+  lastBuzzes=[]; answerCursor=0;
   mutedRound=lastBuzzRound;
   armBuzzers();
+  renderAnswerQueue();
 }
 const MEDALS=["🥇","🥈","🥉"];
 const medalFor=(order)=>MEDALS[order-1]||("#"+order);
@@ -676,6 +723,64 @@ function updateBuzzBanner(){
     b.style.display="flex";
     if(n) n.innerHTML = "🔔 <b>🥇</b> " + escapeAttr(state.buzzedName);
   } else b.style.display="none";
+}
+
+/* ---- Quick Answer: judge submissions fastest-first ----
+   The host works down the list: ✓ awards the clue and closes it, ✗ deducts the
+   value and hands the clue to the next fastest. `answerCursor` is who's up now;
+   rows past it stay dimmed so there's only ever one decision on screen.
+   Late submissions are appended by the server, so indices never shift. */
+let answerCursor=0, aqSig="";
+const answerMode = ()=> state.buzzMode==="answer";
+function renderAnswerQueue(){
+  if(SCREEN!=="control") return;
+  const box=document.getElementById("answerQueue"); if(!box) return;
+  const live = state.boardView && state.boardView.cellId;
+  if(!answerMode() || !(live || lastBuzzes.length)){ box.style.display="none"; box.innerHTML=""; aqSig=""; return; }
+  // The poll runs twice a second, but these rows are click targets — rebuilding
+  // them under the host's cursor eats the ✓ they were aiming at. Only redraw when
+  // something actually changed.
+  const sig = JSON.stringify([answerCursor, currentAward(), lastBuzzes.map(z=>[z.name,z.text,z.order])]);
+  if(sig===aqSig) return;
+  aqSig=sig;
+  box.style.display="";
+  if(!lastBuzzes.length){
+    box.innerHTML = `<div class="aq-head">⌨️ ANSWERS</div>
+      <div class="aq-empty">Waiting for the first answer to come in…</div>`;
+    return;
+  }
+  const rows = lastBuzzes.map((z,i)=>{
+    const cls = i<answerCursor ? "aq-done" : (i===answerCursor ? "aq-live" : "aq-wait");
+    return `<div class="aq-row ${cls}" data-i="${i}">
+      <span class="aq-rank">${medalFor(z.order||i+1)}</span>
+      <span class="aq-who">${escapeAttr(z.name||"")}</span>
+      <span class="aq-text">${escapeAttr(z.text||"—")}</span>
+      <span class="aq-acts">
+        <button class="btn sm aq-yes" title="Correct — award and close">✓</button>
+        <button class="btn warn sm aq-no" title="Wrong — deduct and pass on">✗</button>
+      </span></div>`;
+  }).join("");
+  box.innerHTML = `<div class="aq-head">⌨️ ANSWERS — FASTEST FIRST
+    <span class="tiny">✓ awards ${currentAward()} and closes · ✗ deducts ${currentAward()} and drops to the next</span>
+    </div>${rows}`;
+  box.querySelectorAll(".aq-row").forEach(row=>{
+    const i=Number(row.dataset.i);
+    row.querySelector(".aq-yes").addEventListener("click",()=>judgeAnswer(i,true));
+    row.querySelector(".aq-no").addEventListener("click",()=>judgeAnswer(i,false));
+  });
+}
+function judgeAnswer(i,right){
+  const z=lastBuzzes[i]; if(!z) return;
+  const team=buzzTeamFor(z.name);
+  if(!team){ toast(`No team called "${z.name}" — rename it in the scores to match`); return; }
+  adjust(state.teams.indexOf(team), right ? +currentAward() : -currentAward());
+  if(right){ answerCursor=lastBuzzes.length; closeOpenClue(); }
+  else { answerCursor=i+1; }
+  renderAnswerQueue();
+}
+/* Same iframe handle the console already uses to read the board. */
+function closeOpenClue(){
+  try{ const w=bWin(); if(w && w.modal && w.modal.is_open) w.modal.hide(); }catch(e){}
 }
 
 /* ---------- scoreboard ---------- */
@@ -811,6 +916,12 @@ function showSetup(){
     <h2>Board</h2><div class="field"><label>Jump to board</label>
       <button class="btn ${state.boardIndex===0?'primary':''}" onclick="loadBoard(0)">Board 1</button>
       <button class="btn ${state.boardIndex===1?'primary':''}" onclick="loadBoard(1)">Board 2</button></div>
+    <h2>Buzzer mode</h2><div class="field"><label>How players answer</label>
+      <button class="btn ${state.buzzMode!=="answer"?"primary":""}" onclick="setBuzzMode('buzz')">🔔 Quick Buzz</button>
+      <button class="btn ${state.buzzMode==="answer"?"primary":""}" onclick="setBuzzMode('answer')">⌨️ Quick Answer</button></div>
+    <p class="tiny">${state.buzzMode==="answer"
+      ? "Players <b>type</b> an answer on their phone. You get them fastest-first under the board: mark the quickest ✓ to award the clue and close it, or ✗ to deduct its value and drop to the next fastest. Answers close on their own once everyone is in."
+      : "Players tap a big <b>BUZZ</b> button and you take answers out loud. The running order (🥇 🥈 🥉) shows here and on the TV."}</p>
     <h2>TV display</h2><div class="field"><label>Presentation screen</label>
       <button class="btn tv" onclick="openTv()">🖥 Open / focus TV window</button></div>
     <p class="tiny">Drag that window onto your TV and press its ⛶ Fullscreen. It shows only the board, buzzers and scores.</p>
@@ -852,6 +963,7 @@ async function createRoom(){
   if(!r || !r.code){ toast("Couldn't reach the buzzer — check the internet"); return; }
   state.buzzerCode=r.code; state.hostToken=r.hostToken; state.buzzSynced=false; state.droppedTeams=[];
   pushState(); renderRoomInfo(); refreshBuzzStatus(); startBuzzSync();
+  pushBuzzMode();                            // a brand-new room defaults to Quick Buzz
   if(SCREEN==="display") updateBuzzer();
 }
 function applyRoomCode(code){
@@ -860,6 +972,7 @@ function applyRoomCode(code){
   pushState(); renderRoomInfo(); refreshBuzzStatus();
   if(SCREEN==="display") updateBuzzer();
   startBuzzSync();
+  pushBuzzMode();                           // re-assert our mode on the room we just took over
 }
 function disconnectRoom(){
   state.buzzerCode=""; state.hostToken="";
@@ -910,9 +1023,11 @@ function startBuzzSync(){
       renderWagerBar(); updateWagerMarks();
       // Keep the whole running order for this round: buzzes[0] answers first,
       // and the host needs #2, #3… to hand over to when they get it wrong.
-      if(r.round!==lastBuzzRound){ lastBuzzRound=r.round; if(mutedRound!==r.round) mutedRound=null; }
+      if(r.round!==lastBuzzRound){ lastBuzzRound=r.round; answerCursor=0; if(mutedRound!==r.round) mutedRound=null; }
       lastBuzzes = (r.round===mutedRound) ? [] : (r.buzzes||[]);
       setBuzzedName(lastBuzzes[0] ? lastBuzzes[0].name : "");
+      setBuzzOrder(lastBuzzes.map(z=>z.name||""));
+      renderAnswerQueue();
       const el=document.getElementById("buzzStatus");
       if(el) el.innerHTML=`Connected to <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · ${(r.players||[]).length} player(s) joined`;
     }
@@ -1112,12 +1227,23 @@ function updateBuzzer(){
     if(dot)dot.style.background="var(--bad)";
   }
 }
-/* DISPLAY: name the first buzzer under the clue (the clue stays visible) */
+/* DISPLAY: name who's in, under the clue (the clue itself stays visible).
+   Quick Buzz names the first buzzer; Quick Answer shows the submission order so
+   the room can see the race — but never the answers themselves. */
 function updateBuzzFirst(){
   if(SCREEN!=="display")return;
   const c=document.getElementById("buzzFirst"); if(!c)return;
+  if(state.buzzMode==="answer"){
+    const order=state.buzzOrder||[];
+    if(!order.length){ c.style.display="none"; return; }
+    c.innerHTML = `<div class="bell">⌨️</div><div class="bn bn-list">` +
+      order.slice(0,6).map((n,i)=>`<span class="bo"><b>${medalFor(i+1)}</b> ${escapeAttr(n)}</span>`).join("") +
+      `</div>`;
+    c.style.display="flex";
+    return;
+  }
   if(state.buzzedName){
-    const n=document.getElementById("buzzFirstName"); if(n) n.textContent=state.buzzedName;
+    c.innerHTML = `<div class="bell">🔔</div><div class="bn"><span id="buzzFirstName">${escapeAttr(state.buzzedName)}</span><small>buzzed in first</small></div>`;
     c.style.display="flex";
   } else c.style.display="none";
 }
@@ -1235,7 +1361,7 @@ if(SCREEN==="control"){
   document.getElementById("applyCodeBtn").addEventListener("click",()=>applyRoomCode(document.getElementById("roomCodeInput").value));
   document.getElementById("roomCodeInput").addEventListener("keydown",e=>{ if(e.key==="Enter")applyRoomCode(e.target.value); });
   const ht=document.getElementById("hostTokenInput");
-  ht.addEventListener("input",()=>{ state.hostToken=ht.value.trim(); pushState(); refreshBuzzStatus(); });
+  ht.addEventListener("input",()=>{ state.hostToken=ht.value.trim(); pushState(); refreshBuzzStatus(); pushBuzzMode(); });
   document.getElementById("armBtn").addEventListener("click",()=>hostAction("arm"));
   document.getElementById("reopenBtn").addEventListener("click",()=>hostAction("reopen"));
   document.getElementById("lockBtn").addEventListener("click",()=>hostAction("lock"));

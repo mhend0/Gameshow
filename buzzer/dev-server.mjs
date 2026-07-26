@@ -43,7 +43,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/api/create") {
     let code; do { code = rcode(); } while (rooms.has(code));
     const host = rid(24);
-    rooms.set(code, { host, open: false, round: 1, players: {}, buzzed: {}, order: {}, created: Date.now(),
+    rooms.set(code, { host, open: false, round: 1, mode: "buzz", players: {}, buzzed: {}, order: {}, created: Date.now(),
       wagerActive: false, wagerOpen: false, wagerRound: 0, wager: {} });
     return json(res, 200, { code, hostToken: host });
   }
@@ -64,13 +64,20 @@ const server = createServer(async (req, res) => {
     if (!room.players[b.playerId]) return json(res, 403, { error: "Not joined" });
     // atomic in Node's single thread (no awaits between check and write):
     if (!room.open) return json(res, 200, { closed: true });
+    const answerMode = room.mode === "answer";
+    const text = String(b.text || "").trim().slice(0, 80);
+    if (answerMode && !text) return json(res, 400, { error: "Type an answer first" });
     const rnd = room.round;
     room.buzzed[rnd] = room.buzzed[rnd] || new Set();
     room.order[rnd] = room.order[rnd] || [];
     if (room.buzzed[rnd].has(b.playerId)) return json(res, 200, { already: true });
     room.buzzed[rnd].add(b.playerId);
-    room.order[rnd].push({ pid: b.playerId, name: room.players[b.playerId].name, t: Date.now() });
-    // stays open after the first buzz so the rest queue up behind them
+    const entry = { pid: b.playerId, name: room.players[b.playerId].name, t: Date.now() };
+    if (text) entry.text = text;
+    room.order[rnd].push(entry);
+    // stays open after the first buzz so the rest queue up behind them — except in
+    // answer mode, where there's nobody left to wait for once everyone is in
+    if (answerMode && room.order[rnd].length >= Object.keys(room.players).length) room.open = false;
     return json(res, 200, { ok: true, order: room.order[rnd].length });
   }
 
@@ -82,7 +89,8 @@ const server = createServer(async (req, res) => {
     const wager = room.wagerActive
       ? { active: true, open: room.wagerOpen, round: room.wagerRound, bets: room.wager[room.wagerRound] || {} }
       : null;
-    return json(res, 200, { open: room.open, round: room.round, buzzes: order.map((o, i) => ({ pid: o.pid, name: o.name, t: o.t, order: i + 1 })), players, wager });
+    return json(res, 200, { open: room.open, round: room.round, mode: room.mode === "answer" ? "answer" : "buzz",
+      buzzes: order.map((o, i) => ({ pid: o.pid, name: o.name, text: o.text || null, t: o.t, order: i + 1 })), players, wager });
   }
 
   if (url.pathname === "/api/wager") {
@@ -106,6 +114,7 @@ const server = createServer(async (req, res) => {
       case "arm": room.round += 1; room.buzzed[room.round] = new Set(); room.order[room.round] = []; room.open = true; return json(res, 200, { ok: true, round: room.round, open: true });
       case "reopen": room.open = true; return json(res, 200, { ok: true, open: true });
       case "lock": room.open = false; return json(res, 200, { ok: true, open: false });
+      case "mode": room.mode = b.mode === "answer" ? "answer" : "buzz"; return json(res, 200, { ok: true, mode: room.mode });
       case "score": if (room.players[b.pid]) room.players[b.pid].score += Number(b.delta || 0); return json(res, 200, { ok: true });
       case "rename": if (room.players[b.pid]) room.players[b.pid].name = String(b.name || "").slice(0, 24) || room.players[b.pid].name; return json(res, 200, { ok: true });
       case "kick": delete room.players[b.pid]; return json(res, 200, { ok: true });

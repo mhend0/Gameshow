@@ -1,4 +1,4 @@
-// GET /api/state?code=CODE  → { open, round, buzzes:[{pid,name,order,t}], players:[{pid,name,score}] }
+// GET /api/state?code=CODE  → { open, round, mode, buzzes:[{pid,name,text,order,t}], players:[{pid,name,score}] }
 import { getRedis, k, api, up } from "../lib/store.js";
 
 export default api(async (req, res) => {
@@ -29,7 +29,9 @@ export default api(async (req, res) => {
   res.json({
     open: String(meta.open) === "1",
     round: Number(round),
-    buzzes: (order || []).map((o, i) => ({ pid: o.pid, name: o.name, t: o.t, order: i + 1 })),
+    // Older rooms have no mode set — they're Quick Buzz rooms.
+    mode: meta.mode === "answer" ? "answer" : "buzz",
+    buzzes: (order || []).map((o, i) => ({ pid: o.pid, name: o.name, text: o.text || null, t: o.t, order: i + 1 })),
     players,
     wager,
   });

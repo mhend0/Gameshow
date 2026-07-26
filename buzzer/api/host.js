@@ -1,5 +1,5 @@
 // POST /api/host  { code, hostToken, action, ...args }   (host-only controls)
-// actions: arm | reopen | lock | score | rename | kick
+// actions: arm | reopen | lock | mode | score | rename | kick
 import { getRedis, k, api, up, touch } from "../lib/store.js";
 
 export default api(async (req, res) => {
@@ -28,6 +28,13 @@ export default api(async (req, res) => {
     case "lock":
       await redis.hset(k(code, "meta"), { open: 0 });
       return res.json({ ok: true, open: false });
+    // Which game the phones are playing: tap a buzzer, or type an answer.
+    case "mode": {
+      const mode = b.mode === "answer" ? "answer" : "buzz";
+      await redis.hset(k(code, "meta"), { mode });
+      await touch(code);
+      return res.json({ ok: true, mode });
+    }
     case "score": {
       const p = await redis.hget(k(code, "players"), b.pid);
       if (p) { p.score = (p.score || 0) + Number(b.delta || 0); await redis.hset(k(code, "players"), { [b.pid]: p }); }

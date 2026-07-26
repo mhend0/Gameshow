@@ -52,6 +52,10 @@
   .wexplain{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5;color:#c7cdf0;text-align:left;}
   .wexplain b{color:#fff;}
   .wexplain .g{color:#7CFC9B;} .wexplain .r{color:#ff9683;}
+  /* quick-answer screen */
+  .pill.answer{background:rgba(122,162,255,.18);color:#9db6ff;}
+  input.atext{font-size:22px;font-weight:700;padding:18px;text-align:center;}
+  .abig{font-size:30px;font-weight:900;color:var(--gold);line-height:1.25;word-break:break-word;}
 </style>
 </head>
 <body>
@@ -123,8 +127,11 @@ function showEnterName(msg){
     showBuzz();
   };
 }
-let mode = null;                        // 'buzz' | 'wager'
+let mode = null;                        // 'buzz' | 'wager' | 'answer'
 let wRound = null, wOpen = null;        // last-seen wager round/open (to know when to re-render)
+let aRound = null, aView = null;        // same idea for quick-answer (see syncAnswer)
+let pendingMine = null;                 // my submission, before the poll has seen it
+const esc = (s)=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function renderBuzzScreen(){
   mode = "buzz";
@@ -192,6 +199,92 @@ function updateWagerMeta(w){
   el.textContent = total ? `${locked} of ${total} locked in` : "";
 }
 
+/* ---------- quick answer ----------
+   Type an answer instead of tapping a buzzer; the server ranks submissions by
+   speed and the host marks them fastest-first. The poll runs every 900ms, so the
+   one rule here is: never touch main.innerHTML while someone is mid-sentence.
+   We re-render only when the *view* changes (typing → submitted → closed), and
+   update the live counter in place. */
+function ordinalStatus(o){
+  if(!o) return "✓ Answer in!";
+  if(o===1) return "🥇 Fastest answer in!";
+  if(o===2) return "🥈 2nd fastest in";
+  if(o===3) return "🥉 3rd fastest in";
+  return "#"+o+" fastest in";
+}
+function renderAnswer(r, mine){
+  mode = "answer";
+  hdr.style.display="flex";
+  document.getElementById("whoName").textContent = me.name;
+  document.getElementById("roomTag").textContent = CODE;
+
+  if(mine){
+    main.innerHTML = `
+      <div class="wager-wrap">
+        <div class="pill answer">⌨️ ANSWER LOCKED IN</div>
+        <div class="locked-box"><div class="wcap">Your answer</div><div class="abig">${esc(mine.text)}</div></div>
+        <div class="status" id="ast">${ordinalStatus(mine.order)}</div>
+        <div class="sub" id="ameta"></div>
+      </div>`;
+  } else if(r.open){
+    main.innerHTML = `
+      <div class="wager-wrap">
+        <div class="pill open">● ANSWERS OPEN</div>
+        <h1>Type your answer</h1>
+        <div class="wexplain">Fastest <b>correct</b> answer takes the points.<br>
+          <span class="g">✅ Right → you <b>win</b> the clue's value.</span><br>
+          <span class="r">❌ Wrong → you <b>lose</b> it, and the next fastest gets a go.</span><br>
+          You get <b>one shot</b> — no changing it.</div>
+        <input class="atext" id="atext" placeholder="Your answer" maxlength="80" autocomplete="off" autocorrect="off">
+        <button class="go" id="abtn">Submit answer</button>
+        <div class="err" id="aerr"></div>
+        <div class="sub" id="ameta"></div>
+      </div>`;
+    const inp=document.getElementById("atext"), btn=document.getElementById("abtn");
+    const send = async ()=>{
+      const text = inp.value.trim();
+      if(!text){ document.getElementById("aerr").textContent="Type something first"; return; }
+      btn.disabled=true; inp.disabled=true; btn.textContent="Sending…";
+      const res = await api("/api/buzz",{code:CODE,playerId:me.playerId,text});
+      if(res.ok || res.already){
+        navigator.vibrate && navigator.vibrate(60);
+        // Show the locked screen straight away — waiting for the next poll would
+        // leave a dead "Sending…" button on screen for up to a second.
+        pendingMine = { text, order: res.order || null };
+        aView = "mine"; renderAnswer(r, pendingMine);
+      } else {
+        btn.disabled=false; inp.disabled=false; btn.textContent="Submit answer";
+        document.getElementById("aerr").textContent =
+          res.closed ? "Too late — answers just closed." : (res.error || "Try again");
+      }
+    };
+    btn.addEventListener("click", send);
+    inp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); send(); } });
+    inp.focus();
+  } else {
+    main.innerHTML = `
+      <div class="wager-wrap">
+        <div class="pill closed">🔒 ANSWERS CLOSED</div>
+        <h1>Too late</h1>
+        <div class="status">You didn't get one in this time.</div>
+        <div class="sub">Hang tight for the next clue…</div>
+      </div>`;
+  }
+}
+function syncAnswer(r){
+  if(r.round !== aRound){ aRound=r.round; aView=null; pendingMine=null; }
+  const mine = (r.buzzes||[]).find(b=>b.pid===me.playerId) || pendingMine;
+  const view = mine ? "mine" : (r.open ? "open" : "shut");
+  if(mode!=="answer" || aView!==view){ aView=view; wRound=wOpen=null; renderAnswer(r, mine); }
+  const meta=document.getElementById("ameta");
+  if(meta){
+    const total=(r.players||[]).length, inCount=(r.buzzes||[]).length;
+    meta.textContent = total ? `${inCount} of ${total} answered` : "";
+  }
+  const st=document.getElementById("ast");
+  if(st && mine && mine.order) st.textContent = ordinalStatus(mine.order);
+}
+
 /* ---------- buzz ---------- */
 let armedOpen = false;
 async function doBuzz(){
@@ -225,11 +318,13 @@ function startPolling(){
       // A wager round takes over the whole screen.
       if(r.wager && r.wager.active){
         if(mode!=="wager" || wRound!==r.wager.round || wOpen!==r.wager.open){
-          wRound=r.wager.round; wOpen=r.wager.open; renderWager(r.wager);
+          wRound=r.wager.round; wOpen=r.wager.open; aView=null; renderWager(r.wager);
         } else { updateWagerMeta(r.wager); }
         return;
       }
-      if(mode!=="buzz"){ renderBuzzScreen(); wRound=wOpen=null; }
+      // Otherwise the host's chosen mode decides: tap a buzzer, or type an answer.
+      if(r.mode==="answer"){ syncAnswer(r); return; }
+      if(mode!=="buzz"){ renderBuzzScreen(); wRound=wOpen=null; aView=aRound=null; pendingMine=null; }
       // new round? reset my button
       if(r.round !== lastRound){ lastRound=r.round; myOrder=null; }
       const mine = r.buzzes.find(b=>b.pid===me.playerId);
