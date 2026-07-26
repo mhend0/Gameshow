@@ -45,6 +45,9 @@
   input.wamt::-webkit-outer-spin-button,input.wamt::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
   .locked-box{background:rgba(255,204,0,.1);border:1px solid var(--gold);border-radius:16px;padding:22px;}
   .wbig{font-size:52px;font-weight:900;color:var(--gold);line-height:1;}
+  .wexplain{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.5;color:#c7cdf0;text-align:left;}
+  .wexplain b{color:#fff;}
+  .wexplain .g{color:#7CFC9B;} .wexplain .r{color:#ff9683;}
 </style>
 </head>
 <body>
@@ -147,6 +150,9 @@ function renderWager(w){
         <div class="pill wager">💰 DAILY DOUBLE</div>
         <h1>Place your wager</h1>
         <div class="wcap">${score!=null?`You have <b>${score}</b> pts`:""}${cap!=null?` · max <b>${cap}</b>`:""}</div>
+        <div class="wexplain">Decide how many points to bet, then <b>lock it in before the clue is shown</b>.<br>
+          <span class="g">✅ Right → you <b>win</b> your bet.</span><br>
+          <span class="r">❌ Wrong → you <b>lose</b> your bet.</span></div>
         <input class="wamt" id="wamt" inputmode="numeric" type="number" min="0" ${cap!=null?`max="${cap}"`:""} placeholder="0" value="${bet!=null?bet:""}">
         <button class="go" id="wbtn">${bet!=null?"Update wager":"Lock in wager"}</button>
         <div class="err" id="werr"></div>
