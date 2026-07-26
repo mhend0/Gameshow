@@ -35,6 +35,16 @@
   .logo{font-size:40px;text-align:center;}
   .err{color:#ff9683;font-size:13px;text-align:center;min-height:16px;}
   .foot{flex:0 0 auto;padding:10px;text-align:center;font-size:12px;color:#4b5488;}
+  /* wager screen */
+  .pill.wager{background:rgba(255,204,0,.16);color:var(--gold);}
+  .wager-wrap{display:flex;flex-direction:column;gap:16px;width:min(90vw,360px);align-items:stretch;text-align:center;}
+  .wager-wrap h1{font-size:24px;margin:2px 0;}
+  .wcap{font-size:14px;color:#9aa3d6;}
+  .wcap b{color:#fff;}
+  input.wamt{font-size:38px;font-weight:900;color:var(--gold);padding:18px;text-align:center;}
+  input.wamt::-webkit-outer-spin-button,input.wamt::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .locked-box{background:rgba(255,204,0,.1);border:1px solid var(--gold);border-radius:16px;padding:22px;}
+  .wbig{font-size:52px;font-weight:900;color:var(--gold);line-height:1;}
 </style>
 </head>
 <body>
@@ -106,7 +116,11 @@ function showEnterName(msg){
     showBuzz();
   };
 }
-function showBuzz(){
+let mode = null;                        // 'buzz' | 'wager'
+let wRound = null, wOpen = null;        // last-seen wager round/open (to know when to re-render)
+
+function renderBuzzScreen(){
+  mode = "buzz";
   hdr.style.display="flex";
   document.getElementById("whoName").textContent = me.name;
   document.getElementById("roomTag").textContent = CODE;
@@ -115,7 +129,57 @@ function showBuzz(){
     <button id="buzz" class="locked">BUZZ</button>
     <div class="status" id="st">Get ready…</div>`;
   document.getElementById("buzz").addEventListener("click", doBuzz);
-  startPolling();
+}
+function showBuzz(){ renderBuzzScreen(); startPolling(); }
+
+/* ---------- wager screen ---------- */
+function renderWager(w){
+  mode = "wager";
+  hdr.style.display="flex";
+  document.getElementById("whoName").textContent = me.name;
+  document.getElementById("roomTag").textContent = CODE;
+  const mine = (w.bets && w.bets[me.playerId]) || {};
+  const cap = mine.cap, score = mine.score, bet = mine.bet;
+
+  if(w.open){
+    main.innerHTML = `
+      <div class="wager-wrap">
+        <div class="pill wager">💰 DAILY DOUBLE</div>
+        <h1>Place your wager</h1>
+        <div class="wcap">${score!=null?`You have <b>${score}</b> pts`:""}${cap!=null?` · max <b>${cap}</b>`:""}</div>
+        <input class="wamt" id="wamt" inputmode="numeric" type="number" min="0" ${cap!=null?`max="${cap}"`:""} placeholder="0" value="${bet!=null?bet:""}">
+        <button class="go" id="wbtn">${bet!=null?"Update wager":"Lock in wager"}</button>
+        <div class="err" id="werr"></div>
+        <div class="status" id="wstatus">${bet!=null?"✓ Wager locked: "+bet:""}</div>
+        <div class="sub" id="wmeta"></div>
+      </div>`;
+    const amt=document.getElementById("wamt"), btn=document.getElementById("wbtn");
+    btn.addEventListener("click", async ()=>{
+      let v = Math.max(0, Math.floor(Number(amt.value)||0));
+      if(cap!=null) v = Math.min(v, cap);
+      amt.value = v;
+      btn.disabled=true; const prev=btn.textContent; btn.textContent="Locking…";
+      const r = await api("/api/wager",{code:CODE,playerId:me.playerId,amount:v});
+      btn.disabled=false;
+      if(r.ok){ document.getElementById("wstatus").textContent="✓ Wager locked: "+r.amount; btn.textContent="Update wager"; navigator.vibrate&&navigator.vibrate(40); document.getElementById("werr").textContent=""; }
+      else if(r.closed){ document.getElementById("werr").textContent="Wagering just closed."; btn.textContent=prev; }
+      else { document.getElementById("werr").textContent=r.error||"Try again"; btn.textContent=prev; }
+    });
+  } else {
+    main.innerHTML = `
+      <div class="wager-wrap">
+        <div class="pill wager">💰 DAILY DOUBLE</div>
+        <h1>Wagers locked</h1>
+        <div class="locked-box"><div class="wcap">Your wager</div><div class="wbig">${bet!=null?bet:"—"}</div></div>
+        <div class="status">Good luck! 🍀</div>
+      </div>`;
+  }
+}
+function updateWagerMeta(w){
+  const el=document.getElementById("wmeta"); if(!el||!w.bets) return;
+  const total=Object.keys(w.bets).length;
+  const locked=Object.values(w.bets).filter(b=>b&&b.bet!=null).length;
+  el.textContent = total ? `${locked} of ${total} locked in` : "";
 }
 
 /* ---------- buzz ---------- */
@@ -146,6 +210,14 @@ function startPolling(){
     try{
       const r = await fetch("/api/state?code="+CODE).then(x=>x.json());
       if(r.error){ return; }
+      // A wager round takes over the whole screen.
+      if(r.wager && r.wager.active){
+        if(mode!=="wager" || wRound!==r.wager.round || wOpen!==r.wager.open){
+          wRound=r.wager.round; wOpen=r.wager.open; renderWager(r.wager);
+        } else { updateWagerMeta(r.wager); }
+        return;
+      }
+      if(mode!=="buzz"){ renderBuzzScreen(); wRound=wOpen=null; }
       // new round? reset my button
       if(r.round !== lastRound){ lastRound=r.round; myOrder=null; }
       const mine = r.buzzes.find(b=>b.pid===me.playerId);

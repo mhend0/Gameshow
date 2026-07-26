@@ -43,7 +43,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/api/create") {
     let code; do { code = rcode(); } while (rooms.has(code));
     const host = rid(24);
-    rooms.set(code, { host, open: false, round: 1, players: {}, buzzed: {}, order: {}, created: Date.now() });
+    rooms.set(code, { host, open: false, round: 1, players: {}, buzzed: {}, order: {}, created: Date.now(),
+      wagerActive: false, wagerOpen: false, wagerRound: 0, wager: {} });
     return json(res, 200, { code, hostToken: host });
   }
 
@@ -79,7 +80,23 @@ const server = createServer(async (req, res) => {
     if (!room) return json(res, 404, { error: "Room not found" });
     const order = room.order[room.round] || [];
     const players = Object.entries(room.players).map(([pid, v]) => ({ pid, name: v.name, score: v.score })).sort((a, b) => b.score - a.score);
-    return json(res, 200, { open: room.open, round: room.round, buzzes: order.map((o, i) => ({ pid: o.pid, name: o.name, t: o.t, order: i + 1 })), players });
+    const wager = room.wagerActive
+      ? { active: true, open: room.wagerOpen, round: room.wagerRound, bets: room.wager[room.wagerRound] || {} }
+      : null;
+    return json(res, 200, { open: room.open, round: room.round, buzzes: order.map((o, i) => ({ pid: o.pid, name: o.name, t: o.t, order: i + 1 })), players, wager });
+  }
+
+  if (url.pathname === "/api/wager") {
+    const room = rooms.get(up(b.code));
+    if (!room) return json(res, 404, { error: "Room not found" });
+    if (!room.wagerOpen) return json(res, 200, { closed: true });
+    const round = room.wagerRound;
+    const bets = room.wager[round] = room.wager[round] || {};
+    const entry = bets[b.playerId] || { score: null, cap: null, bet: null };
+    let amount = Math.max(0, Math.floor(Number(b.amount) || 0));
+    if (entry.cap != null) amount = Math.min(amount, Number(entry.cap));
+    entry.bet = amount; bets[b.playerId] = entry;
+    return json(res, 200, { ok: true, amount });
   }
 
   if (url.pathname === "/api/host") {
@@ -93,6 +110,19 @@ const server = createServer(async (req, res) => {
       case "score": if (room.players[b.pid]) room.players[b.pid].score += Number(b.delta || 0); return json(res, 200, { ok: true });
       case "rename": if (room.players[b.pid]) room.players[b.pid].name = String(b.name || "").slice(0, 24) || room.players[b.pid].name; return json(res, 200, { ok: true });
       case "kick": delete room.players[b.pid]; return json(res, 200, { ok: true });
+      case "wagerOpen": {
+        const nr = (room.wagerRound || 0) + 1;
+        const entries = {};
+        for (const p of (Array.isArray(b.players) ? b.players : [])) {
+          if (p && p.pid) entries[p.pid] = { score: Number(p.score) || 0, cap: (p.cap == null ? null : Number(p.cap)), bet: null };
+        }
+        room.wager[nr] = entries;
+        room.wagerRound = nr; room.wagerActive = true; room.wagerOpen = true;
+        return json(res, 200, { ok: true, round: nr });
+      }
+      case "wagerLock": room.wagerOpen = false; return json(res, 200, { ok: true });
+      case "wagerReopen": room.wagerOpen = true; return json(res, 200, { ok: true });
+      case "wagerEnd": room.wagerActive = false; room.wagerOpen = false; return json(res, 200, { ok: true });
       default: return json(res, 400, { error: "Unknown action" });
     }
   }

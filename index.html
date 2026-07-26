@@ -73,6 +73,16 @@
   .crow .remove{position:absolute;top:3px;right:6px;background:none;border:none;color:#6b74a8;cursor:pointer;font-size:12px;display:none;}
   body.editing .crow .remove{display:inline;}
   body.editing .crow .tname{border-bottom-color:var(--gold);}
+  /* wager marking row (appears under a team while a wager round runs) */
+  .crow.wagering{background:rgba(255,207,92,.06);border-color:var(--gold);}
+  .crow .wcell{grid-column:1 / -1;align-items:center;gap:8px;margin-top:6px;padding-top:8px;border-top:1px dashed var(--line);}
+  .wcell .wamt{font-weight:800;color:var(--gold-bright);font-size:14px;}
+  .wcell .wamt.waiting{color:#7d879e;font-weight:600;}
+  .wcell .wmk{width:36px;height:30px;border-radius:8px;border:1px solid var(--line);background:#0c1338;color:#fff;font-size:16px;font-weight:800;cursor:pointer;}
+  .wcell .wmk.right{margin-left:auto;}
+  .wcell .wmk:hover{filter:brightness(1.2);}
+  .wcell .wmk.right.on{background:var(--good);border-color:var(--good);}
+  .wcell .wmk.wrong.on{background:var(--bad);border-color:var(--bad);}
 
   /* display buzzer column (thin) */
   #dispBuzz{flex:0 0 300px;max-width:300px;flex-direction:column;background:var(--panel);border-left:3px solid var(--gold);min-height:0;}
@@ -219,6 +229,19 @@
             <button class="btn tv sm" id="armBtn" style="flex:2">🔔 Open buzzers</button>
             <button class="btn sm" id="reopenBtn" title="Re-open (same question)">↻</button>
             <button class="btn warn sm" id="lockBtn">🔒</button>
+          </div>
+          <div id="wagerBar" style="margin-top:8px;display:none">
+            <button class="btn sm" id="wagerStartBtn" style="width:100%">💰 Start wager round</button>
+            <div id="wagerActiveCtrls" style="display:none">
+              <div class="row" style="align-items:center">
+                <b style="color:var(--gold-bright);font-size:13px">💰 Wager round</b>
+                <span id="wagerPhase" class="tiny"></span>
+                <span style="margin-left:auto"></span>
+                <button class="btn sm" id="wagerLockBtn">🔒 Lock</button>
+                <button class="btn warn sm" id="wagerEndBtn">End</button>
+              </div>
+              <p class="tiny" style="margin-top:4px;color:#8a93c8">Mark ✓ / ✗ on each team below to add or subtract their wager.</p>
+            </div>
           </div>
           <p class="status" id="buzzStatus" style="margin-top:8px"></p>
           <p class="tiny" style="margin-top:6px;color:#8a93c8">Players who join are <b>added as teams automatically</b>.
@@ -499,8 +522,12 @@ function onQuestionOpen(){                                 // fresh buzzers + cl
   setBuzzHidden(false,"");
   if(state.buzzerCode && state.hostToken){ awaitingArm=true; lastHiddenCount=Infinity; armBuzzers(); }
   else { awaitingArm=false; lastHiddenCount=0; }
+  // Daily Double → open a wager round so players bet before they see the clue.
+  if(isDailyDoubleOpen()) setTimeout(maybeAutoWager, 60);
 }
-function onQuestionClose(){ setBuzzHidden(false,""); awaitingArm=false; armBuzzers(); }     // re-open buzzers for next
+function onQuestionClose(){ setBuzzHidden(false,""); awaitingArm=false; armBuzzers();        // re-open buzzers for next
+  if(wagerState && wagerState.active) endWagerRound();   // close out any wager round with the clue
+}
 function onReveal(){ setBuzzHidden(false,""); }                                            // showing the answer un-hides
 function setBuzzHidden(hidden,name){
   if(state.buzzHidden===hidden && (name===undefined||state.buzzedName===name)) return;
@@ -529,6 +556,7 @@ function renderScores(){
       row.innerHTML=`<button class="remove">✕</button>
         <input class="tname" value="${escapeAttr(t.name)}" spellcheck="false">
         <div class="tscore">${t.score}</div>
+        <div class="wcell" style="display:none"></div>
         <div class="ctrls"><button class="pm minus">−</button><button class="pm plus">+</button></div>`;
       const nm=row.querySelector(".tname"), sc=row.querySelector(".tscore");
       nm.addEventListener("input",()=>{state.teams[i].name=nm.value;pushState();});
@@ -552,6 +580,7 @@ function renderScores(){
       strip.appendChild(c);
     });
   }
+  if(typeof updateWagerMarks==="function") updateWagerMarks();
 }
 function adjust(i,delta){
   if(!delta)return;
@@ -636,8 +665,12 @@ function resetScores(){ state.teams.forEach(t=>t.score=0);state.completedPrompte
 function fullReset(){ state=defaultState();pushState();renderScores();updateChrome();ensureBoard();updateBuzzer&&updateBuzzer();hideOverlay(); }
 
 /* ---------- buzzers (our own buzzer, deployed on Vercel) ---------- */
-const BUZZER_BASE = "https://gameshow-mu.vercel.app";   // <-- your deployed buzzer URL
+// Override for local testing / a different deployment: localStorage 'gsp_buzzer_base'.
+const BUZZER_BASE = (()=>{ try{ return localStorage.getItem("gsp_buzzer_base") || "https://gameshow-mu.vercel.app"; }catch(e){ return "https://gameshow-mu.vercel.app"; } })();
 let buzzSyncTimer=null;
+let lastPlayers=[];        // latest buzzer player list (for score/wager matching)
+let wagerState=null;       // latest wager round from /api/state (or null)
+let buzzerSupportsWager=false;  // does the deployed buzzer understand wager rounds?
 const cleanRoom = c => String(c||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6);
 
 const joinURL = ()=> BUZZER_BASE + "/?code=" + state.buzzerCode;
@@ -685,6 +718,7 @@ function refreshBuzzStatus(){
     el.innerHTML = `Room <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · connected`;
     if(ctrls) ctrls.style.display = state.hostToken ? "flex" : "none";
   } else { el.textContent="Not connected."; if(ctrls) ctrls.style.display="none"; }
+  if(typeof renderWagerBar==="function") renderWagerBar();
 }
 /* CONTROL: poll buzzer → auto-add teams + hide clue on first buzz. Self-scheduling
    (adaptive rate) and resilient: a transient error never stops the loop. */
@@ -698,7 +732,11 @@ function startBuzzSync(){
     let r=null;
     try{ r=await fetch(BUZZER_BASE+"/api/state?code="+state.buzzerCode).then(x=>x.json()); }catch(e){}
     if(r && !r.error){
+      lastPlayers = r.players||[];
+      buzzerSupportsWager = ("wager" in r);
+      wagerState = r.wager || null;
       syncTeamsFromPlayers(r.players||[]);
+      renderWagerBar(); updateWagerMarks();
       // hide the clue on the TV once someone buzzes for the open question (anti-spam)
       const qOpen = state.boardView && state.boardView.cellId && !state.boardView.revealed;
       const n = (r.buzzes||[]).length;
@@ -708,8 +746,9 @@ function startBuzzSync(){
       if(el) el.innerHTML=`Connected to <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · ${(r.players||[]).length} player(s) joined`;
     }
     const qOpenNow = state.boardView && state.boardView.cellId && !state.boardView.revealed;
+    const wagering = !!(wagerState && wagerState.active);
     clearTimeout(buzzSyncTimer);
-    buzzSyncTimer=setTimeout(()=>{ if(buzzTickFn) buzzTickFn(); }, qOpenNow ? 700 : 2000);
+    buzzSyncTimer=setTimeout(()=>{ if(buzzTickFn) buzzTickFn(); }, (qOpenNow||wagering) ? 700 : 2000);
   };
   buzzTickFn();
 }
@@ -726,11 +765,101 @@ function syncTeamsFromPlayers(players){
   if(added){ pushState(); renderScores(); }
 }
 /* Optional: drive the buzzer host from here (needs the host token pasted in) */
-function hostAction(action){
-  if(!state.buzzerCode || !state.hostToken){ toast("Paste the host token to control buzzers from here"); return; }
-  fetch(BUZZER_BASE+"/api/host",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({code:state.buzzerCode,hostToken:state.hostToken.trim(),action})})
-    .then(x=>x.json()).then(r=>{ if(r&&r.error) toast(r.error); }).catch(()=>toast("Buzzer offline?"));
+function hostAction(action, extra){
+  if(!state.buzzerCode || !state.hostToken){ toast("Paste the host token to control buzzers from here"); return Promise.resolve(); }
+  return fetch(BUZZER_BASE+"/api/host",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(Object.assign({code:state.buzzerCode,hostToken:state.hostToken.trim(),action},extra||{}))})
+    .then(x=>x.json()).then(r=>{ if(r&&r.error) toast(r.error); return r; }).catch(()=>{ toast("Buzzer offline?"); });
+}
+
+/* ---------- wager rounds (Daily Double / final-style) ----------
+   Players enter a wager on their phones; the host marks each team right/wrong
+   and the score gains/loses that wager. Scores live here; the buzzer only carries
+   the wager amounts. */
+const buzzTeamFor = (name)=> state.teams.find(t=>(t.name||"").trim().toLowerCase()===(name||"").trim().toLowerCase());
+function refreshBuzzSoon(){ if(SCREEN!=="control") return; clearTimeout(buzzSyncTimer); if(buzzTickFn) buzzTickFn(); }
+
+function openWagerRound(){
+  if(SCREEN!=="control") return;
+  if(!state.buzzerCode || !state.hostToken){ toast("Connect a buzzer room first"); return; }
+  if(!buzzerSupportsWager){ toast("Update (redeploy) your buzzer to enable wagers"); return; }
+  const players=(lastPlayers||[]).map(p=>{
+    const t=buzzTeamFor(p.name); const score=t?t.score:0;
+    return { pid:p.pid, score, cap:Math.max(score,1000) };   // wager up to your score, or 1000
+  });
+  if(!players.length){ toast("No players have joined the buzzer yet"); return; }
+  hostAction("wagerOpen",{players}).then(()=>{ toast("Wager round opened — players are wagering"); refreshBuzzSoon(); });
+}
+function lockWagers(){ hostAction(wagerState && wagerState.open ? "wagerLock" : "wagerReopen").then(refreshBuzzSoon); }
+function endWagerRound(){ hostAction("wagerEnd").then(()=>{ wagerState=null; renderWagerBar(); updateWagerMarks(); refreshBuzzSoon(); }); }
+
+function teamBet(team){
+  if(!wagerState || !wagerState.bets) return {pid:null, bet:null};
+  const p=(lastPlayers||[]).find(pl=>(pl.name||"").trim().toLowerCase()===(team.name||"").trim().toLowerCase());
+  if(!p) return {pid:null, bet:null};
+  const e=wagerState.bets[p.pid];
+  return {pid:p.pid, bet: e && e.bet!=null ? Number(e.bet) : null};
+}
+function applyWagerMark(i, right){
+  const team=state.teams[i]; if(!team) return;
+  const {bet}=teamBet(team);
+  if(bet==null){ toast(`${team.name} hasn't wagered`); return; }
+  const round=wagerState.round, key=(team.name||"").trim().toLowerCase();
+  state.wagerApplied = state.wagerApplied || {};
+  const rmap = state.wagerApplied[round] = state.wagerApplied[round] || {};
+  const prev = rmap[key];
+  if(prev) team.score -= (prev.mark==="right" ? prev.amount : -prev.amount);   // undo previous
+  if(prev && prev.mark===(right?"right":"wrong")){
+    delete rmap[key];                                                          // click same = unmark
+  } else {
+    team.score += right ? bet : -bet;
+    rmap[key] = { mark: right?"right":"wrong", amount: bet };
+  }
+  markCurrentAnswered();                                                       // grey out the DD tile
+  pushState(); renderScores();
+}
+
+function renderWagerBar(){
+  const bar=document.getElementById("wagerBar"); if(!bar) return;
+  const canHost = state.buzzerCode && state.hostToken;
+  bar.style.display = canHost ? "" : "none";
+  const active = !!(wagerState && wagerState.active);
+  const start=document.getElementById("wagerStartBtn"), ctrls=document.getElementById("wagerActiveCtrls");
+  if(start) start.style.display = active ? "none" : "";
+  if(ctrls) ctrls.style.display = active ? "" : "none";
+  if(active){
+    const phase=document.getElementById("wagerPhase");
+    if(phase) phase.textContent = wagerState.open ? "· open — players wagering" : "· locked";
+    const lb=document.getElementById("wagerLockBtn");
+    if(lb) lb.textContent = wagerState.open ? "🔒 Lock" : "↻ Reopen";
+  }
+}
+function updateWagerMarks(){
+  const rows=document.querySelectorAll("#ctrlScores .crow");
+  const active=!!(wagerState && wagerState.active);
+  const round=active?wagerState.round:null;
+  state.teams.forEach((t,i)=>{
+    const row=rows[i]; if(!row) return;
+    const cell=row.querySelector(".wcell"); if(!cell) return;
+    if(!active){ cell.style.display="none"; cell.innerHTML=""; row.classList.remove("wagering"); return; }
+    row.classList.add("wagering"); cell.style.display="flex";
+    const {bet}=teamBet(t);
+    const key=(t.name||"").trim().toLowerCase();
+    const applied=(state.wagerApplied && state.wagerApplied[round] && state.wagerApplied[round][key])||null;
+    if(bet==null){ cell.innerHTML=`<span class="wamt waiting">waiting…</span>`; return; }
+    cell.innerHTML=`<span class="wamt">🪙 ${bet}</span>
+      <button class="wmk right ${applied&&applied.mark==="right"?"on":""}" title="Correct (+${bet})">✓</button>
+      <button class="wmk wrong ${applied&&applied.mark==="wrong"?"on":""}" title="Wrong (−${bet})">✗</button>`;
+    cell.querySelector(".right").onclick=()=>applyWagerMark(i,true);
+    cell.querySelector(".wrong").onclick=()=>applyWagerMark(i,false);
+  });
+}
+/* Detect a Daily Double question open in the board iframe (class set by play-board). */
+function isDailyDoubleOpen(){ const d=bDoc(); return !!(d && d.querySelector(".active-question .cell.points.dd")); }
+function maybeAutoWager(){
+  if(!state.buzzerCode || !state.hostToken || !buzzerSupportsWager) return;   // no room / old buzzer → just the visual splash
+  if(wagerState && wagerState.active) return;                    // already running
+  openWagerRound();
 }
 /* DISPLAY: embed the live buzzer board in the TV column */
 function updateBuzzer(){
@@ -825,6 +954,9 @@ if(SCREEN==="control"){
   document.getElementById("armBtn").addEventListener("click",()=>hostAction("arm"));
   document.getElementById("reopenBtn").addEventListener("click",()=>hostAction("reopen"));
   document.getElementById("lockBtn").addEventListener("click",()=>hostAction("lock"));
+  document.getElementById("wagerStartBtn").addEventListener("click",openWagerRound);
+  document.getElementById("wagerLockBtn").addEventListener("click",lockWagers);
+  document.getElementById("wagerEndBtn").addEventListener("click",endWagerRound);
   const ai=document.getElementById("awardInput");
   ai.addEventListener("change",()=>{ if(currentAward()<0)ai.value=0; state.award=currentAward(); pushState(); });
 }
@@ -834,7 +966,13 @@ renderScores(); updateChrome(); ensureBoard();
 if(SCREEN==="control"){
   const rc=document.getElementById("roomCodeInput"); if(rc&&state.buzzerCode) rc.value=state.buzzerCode;
   const ht=document.getElementById("hostTokenInput"); if(ht&&state.hostToken) ht.value=state.hostToken;
-  renderRoomInfo(); refreshBuzzStatus(); startBuzzSync();
+  renderRoomInfo(); refreshBuzzStatus(); renderWagerBar(); startBuzzSync();
+  // When the host reveals a Daily Double clue (play-board broadcasts this), lock
+  // wagers automatically so nobody can change their bet after seeing the clue.
+  try{
+    const playBc=new BroadcastChannel("gsp-play");
+    playBc.onmessage=(e)=>{ if(e.data && e.data.type==="ddShowClue" && wagerState && wagerState.active && wagerState.open){ hostAction("wagerLock").then(refreshBuzzSoon); } };
+  }catch(e){}
 }
 if(SCREEN==="display"){ updateBuzzer(); updateBuzzCover(); bc.postMessage({type:"ping"}); }
 updateQrOverlay();

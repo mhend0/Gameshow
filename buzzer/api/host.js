@@ -41,6 +41,30 @@ export default api(async (req, res) => {
     case "kick":
       await redis.hdel(k(code, "players"), b.pid);
       return res.json({ ok: true });
+
+    // ---- wager rounds (Daily Double / final-style) ----
+    case "wagerOpen": {
+      const nr = (Number(meta.wagerRound) || 0) + 1;
+      await redis.del(k(code, "wager", nr));
+      const entries = {};
+      for (const p of (Array.isArray(b.players) ? b.players : [])) {
+        if (p && p.pid) entries[p.pid] = { score: Number(p.score) || 0, cap: (p.cap == null ? null : Number(p.cap)), bet: null };
+      }
+      if (Object.keys(entries).length) await redis.hset(k(code, "wager", nr), entries);
+      await redis.hset(k(code, "meta"), { wagerRound: nr, wagerActive: 1, wagerOpen: 1 });
+      await touch(code);
+      return res.json({ ok: true, round: nr });
+    }
+    case "wagerLock":
+      await redis.hset(k(code, "meta"), { wagerOpen: 0 });
+      return res.json({ ok: true });
+    case "wagerReopen":
+      await redis.hset(k(code, "meta"), { wagerOpen: 1 });
+      return res.json({ ok: true });
+    case "wagerEnd":
+      await redis.hset(k(code, "meta"), { wagerActive: 0, wagerOpen: 0 });
+      return res.json({ ok: true });
+
     default:
       return res.status(400).json({ error: "Unknown action" });
   }
