@@ -88,7 +88,7 @@
     </div>
   </main>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="/qr.js"></script>
 <script>
 let ROOM = JSON.parse(localStorage.getItem("buzz_host")||"null");   // {code, hostToken}
 let poll=null, lastRound=null;
@@ -127,11 +127,8 @@ function boot(){
 }
 function renderQR(){
   const box=document.getElementById("qr"); box.innerHTML="";
-  try{
-    if(window.QRCode){ const c=document.createElement("canvas"); box.appendChild(c);
-      QRCode.toCanvas(c, joinURL(), {width:200,margin:1}, e=>{ if(e) box.innerHTML="<span style='color:#333'>(scan the link)</span>"; }); }
-    else box.innerHTML="<span style='color:#333;font-size:12px'>Link above</span>";
-  }catch(e){ box.innerHTML=""; }
+  try{ box.appendChild(QR.canvas(joinURL(),200,{margin:2})); }
+  catch(e){ box.innerHTML="<span style='color:#333'>(scan the link)</span>"; }
 }
 
 function startPolling(){

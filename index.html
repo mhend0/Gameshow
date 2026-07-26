@@ -288,7 +288,7 @@
     <div id="dispScores" style="display:contents"></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="platform/ui/qr.js"></script>
 
   <!-- Join-QR overlay (both screens; purely visual, doesn't touch the game) -->
   <div id="qrOverlay">
@@ -709,9 +709,9 @@ function renderRoomInfo(){
     const c=document.getElementById("codeBig"); if(c) c.textContent=state.buzzerCode;
     const l=document.getElementById("joinLinkText"); if(l) l.textContent=joinURL().replace(/^https?:\/\//,"");
     const qb=document.getElementById("qrBox");
-    if(qb){ qb.innerHTML=""; try{ if(window.QRCode){ const cv=document.createElement("canvas"); qb.appendChild(cv);
-      QRCode.toCanvas(cv, joinURL(), {width:150,margin:1}, e=>{ if(e) qb.innerHTML="<span style='color:#333;font-size:11px'>link above</span>"; }); }
-      else qb.style.display="none"; }catch(e){ qb.style.display="none"; } }
+    if(qb){ qb.innerHTML=""; qb.style.display="flex";
+      try{ qb.appendChild(QR.canvas(joinURL(),150,{margin:2})); }
+      catch(e){ qb.innerHTML="<span style='color:#333;font-size:11px'>link above</span>"; } }
   } else { info.style.display="none"; if(createBtn) createBtn.style.display=""; }
 }
 function refreshBuzzStatus(){
@@ -914,13 +914,9 @@ function updateQrOverlay(){
 }
 function renderQrBig(){
   const box=document.getElementById("qrBig"); if(!box)return;
-  const fallback = "<div style='color:#111;padding:24px;font-size:16px'>"+joinURL().replace(/^https?:\/\//,"")+"</div>";
   box.innerHTML="";
-  try{
-    if(window.QRCode){ const cv=document.createElement("canvas"); box.appendChild(cv);
-      QRCode.toCanvas(cv, joinURL(), {width:340,margin:1}, e=>{ if(e) box.innerHTML=fallback; }); }
-    else box.innerHTML=fallback;
-  }catch(e){ box.innerHTML=fallback; }
+  try{ box.appendChild(QR.canvas(joinURL(),340,{margin:2})); }
+  catch(e){ box.innerHTML="<div style='color:#111;padding:24px;font-size:16px'>"+joinURL().replace(/^https?:\/\//,"")+"</div>"; }
 }
 
 /* ---------- TV window ---------- */
