@@ -785,7 +785,9 @@ function openWagerRound(){
   if(!buzzerSupportsWager){ toast("Update (redeploy) your buzzer to enable wagers"); return; }
   const players=(lastPlayers||[]).map(p=>{
     const t=buzzTeamFor(p.name); const score=t?t.score:0;
-    return { pid:p.pid, score, cap:Math.max(score,1000) };   // wager up to your score, or 1000
+    // Wager up to the points you have. If you're in the red, you can wager up to
+    // what you owe — a correct answer brings you back to zero, a wrong one doubles it.
+    return { pid:p.pid, score, cap:Math.abs(score) };
   });
   if(!players.length){ toast("No players have joined the buzzer yet"); return; }
   hostAction("wagerOpen",{players}).then(()=>{ toast("Wager round opened — players are wagering"); refreshBuzzSoon(); });
