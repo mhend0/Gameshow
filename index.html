@@ -124,6 +124,11 @@
   #buzzFirst .bn{font-size:38px;font-weight:900;color:var(--gold-bright);line-height:1.1;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #buzzFirst .bn small{font-size:20px;font-weight:700;color:#fff;margin-left:12px;}
+  /* Control: two console windows can't both drive the TV — say so, loudly */
+  #dupWarn{position:fixed;top:0;left:0;right:0;z-index:200;align-items:center;justify-content:center;gap:14px;
+    padding:10px 16px;background:linear-gradient(180deg,#5a1111,#3a0a0a);border-bottom:3px solid var(--bad);
+    color:#ffd9d9;font-size:15px;font-weight:700;text-align:center;}
+  #dupWarn button{margin-left:10px;}
   /* Control banner naming the first buzzer */
   #buzzBanner{position:absolute;top:0;left:0;right:0;z-index:19;align-items:center;justify-content:space-between;gap:12px;
     padding:8px 14px;background:linear-gradient(180deg,#3a2c08,#241a05);border-bottom:2px solid var(--gold-bright);
@@ -176,6 +181,10 @@
 </style>
 </head>
 <body>
+  <div id="dupWarn" class="control-only" style="display:none">
+    <span>⚠ Another <b>Control</b> window is open — close it, or the TV will keep fighting between them.</span>
+    <button class="btn sm" id="dupWarnClose">Dismiss</button>
+  </div>
   <!-- ===== CONTROL top bar ===== -->
   <div id="topbar" class="control-only">
     <button class="btn" id="homeBtn" title="Back to Game Show Studio home">⌂ Home</button>
@@ -321,11 +330,19 @@ document.body.dataset.screen = SCREEN;
 
 const STORE_KEY = "trivia_console_v2";
 
+let state = loadState();
+
 /* Which boards to play. The platform (Home / Sessions / Editor) launches the
    console with ?session=<id> or ?board=<id>; those play data-model boards via
    the console-compatible renderer (play-board.html). With no param we fall back
-   to the original static boards so any existing bookmark keeps working exactly. */
+   to the original static boards so any existing bookmark keeps working exactly.
+
+   The TV must play the *same* board files as control — otherwise the two windows
+   render different UIs and the cell ids don't match, so nothing mirrors. Control
+   publishes its resolved list in shared state (`state.boards`) and the TV always
+   follows that, no matter how its own window was opened or refreshed. */
 function resolveBoards(){
+  if(SCREEN==="display" && Array.isArray(state.boards) && state.boards.length) return state.boards.slice();
   const readColl = (name)=>{ try{ return JSON.parse(localStorage.getItem("gsp:"+name))||{}; }catch(e){ return {}; } };
   const toUrl = (id)=>"play-board.html?board="+encodeURIComponent(id);
   try{
@@ -337,16 +354,16 @@ function resolveBoards(){
   }catch(e){}
   return ["board1.html", "board2.html"];
 }
-const BOARDS = resolveBoards();
+let BOARDS = resolveBoards();
 const SESSION_NAME = (()=>{ try{ const s=JSON.parse(localStorage.getItem("gsp:sessions")||"{}")[params.get("session")]; return s?s.name:""; }catch(e){ return ""; } })();
 const bc = new BroadcastChannel("trivia_sync");
+const WIN_ID = Math.random().toString(36).slice(2);   // identifies this window on the channel
 
 const boardFrame  = document.getElementById("boardFrame");
 const boardLoading = document.getElementById("boardLoading");
 
-let state = loadState();
 let currentBoardSrc = null;
-let displayShownCell = null, displayRevealed = false;
+let displayShownCell = null, displayRevealed = false, revealAskedFor = null;
 
 /* Reconcile persisted progress with the launched session/board (control only).
    A newly launched run starts at board 1; scores/teams are kept so the host can
@@ -361,6 +378,7 @@ if(SCREEN==="control"){
     state.completedPrompted = BOARDS.map(()=>false);
     state.boardView = {cellId:null,revealed:false,inerts:[]};
   }
+  state.boards = BOARDS.slice();     // the TV follows this, not its own URL
   if(state.boardIndex >= BOARDS.length) state.boardIndex = Math.max(0, BOARDS.length-1);
   if(!Array.isArray(state.completedPrompted) || state.completedPrompted.length < BOARDS.length){
     const c = BOARDS.map((_,i)=> (state.completedPrompted && state.completedPrompted[i]) || false);
@@ -373,7 +391,7 @@ if(SCREEN==="control"){
 function defaultState(){
   return {
     teams:[{name:"Team 1",score:0},{name:"Team 2",score:0},{name:"Team 3",score:0}],
-    boardIndex:0, award:100,
+    boardIndex:0, award:100, boards:[],
     buzzerCode:"", hostToken:"", buzzSynced:false,
     buzzedName:"", qrOverlay:false,
     completedPrompted:[false,false],
@@ -394,9 +412,19 @@ bc.onmessage = (e)=>{
   const m=e.data;
   if(m.type==="state"){
     const prevBoard=state.boardIndex, prevBuzz=state.buzzerCode;
+    // What the TV is showing is driven ONLY by `boardView` messages. A general
+    // state push can be a moment stale (or come from a second console window
+    // left open), and letting it set boardView would slam the open clue shut.
+    const keepView = state.boardView;
     state=Object.assign(defaultState(),m.state);
+    if(SCREEN==="display") state.boardView=keepView;
+    // The TV plays exactly what control plays — adopt its list the moment it changes.
+    if(SCREEN==="display" && Array.isArray(state.boards) && state.boards.length
+       && state.boards.join("|")!==BOARDS.join("|")){
+      BOARDS=state.boards.slice();
+    }
     renderScores(); updateChrome();
-    if(state.boardIndex!==prevBoard) ensureBoard();
+    if(state.boardIndex!==prevBoard || BOARDS[state.boardIndex]!==currentBoardSrc) ensureBoard();
     if(SCREEN==="display"){ if(prevBuzz!==state.buzzerCode) updateBuzzer(); updateBuzzFirst(); }
     updateQrOverlay();
   } else if(m.type==="boardView" && SCREEN==="display"){
@@ -404,15 +432,28 @@ bc.onmessage = (e)=>{
   } else if(m.type==="ping" && SCREEN==="control"){
     // a TV window just opened/refreshed — send it the current state so it catches up
     lastViewKey=""; pushState(); pushBoardView();
+  } else if(m.type==="hello" && SCREEN==="control" && m.id!==WIN_ID){
+    bc.postMessage({type:"hello-ack",id:WIN_ID});   // "I'm here too" — both windows warn
+    warnDuplicateControl();
+  } else if(m.type==="hello-ack" && SCREEN==="control" && m.id!==WIN_ID){
+    warnDuplicateControl();
   }
 };
+/* Two Control windows both broadcast state, so the TV gets whipsawed between
+   them (and can even be dragged onto the wrong board). Nothing can resolve that
+   automatically — which one is the host driving? — so make it impossible to miss. */
+function warnDuplicateControl(){
+  const w=document.getElementById("dupWarn"); if(!w||w.dataset.dismissed)return;
+  w.style.display="flex";
+}
 function escapeAttr(s){ return String(s).replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
 
 /* ---------- board loading / setup ---------- */
 function ensureBoard(){
   const want=BOARDS[state.boardIndex];
+  if(!want) return;
   if(currentBoardSrc!==want){ currentBoardSrc=want; boardLoading.style.display="flex";
-    displayShownCell=null; displayRevealed=false; boardFrame.src=want; }
+    displayShownCell=null; displayRevealed=false; revealAskedFor=null; boardFrame.src=want; }
 }
 function bDoc(){ try{return boardFrame.contentDocument;}catch(e){return null;} }
 function bWin(){ try{return boardFrame.contentWindow;}catch(e){return null;} }
@@ -431,7 +472,7 @@ function setupBoard(){
   if(SCREEN==="control"){ try{w.do_autoplay=false;}catch(e){} }   // TV plays media; laptop stays quiet
   else { try{w.do_autoplay=true;}catch(e){}
          // renderState() above closes any modal, so re-sync the mirror from scratch
-         displayShownCell=null; displayRevealed=false;
+         displayShownCell=null; displayRevealed=false; revealAskedFor=null;
          if(state.boardView) applyDisplayBoardView(state.boardView);
          bc.postMessage({type:"ping"}); }   // board is ready — ask control to re-send current view
   boardLoading.style.display="none";
@@ -469,21 +510,30 @@ function boardComplete(){
 }
 
 /* ---- DISPLAY: mirror the open question onto the TV board ---- */
+/* Reads what the TV's board is *actually* showing rather than trusting a cached
+   flag, so a missed message, a reloaded iframe or a modal closed behind our back
+   all correct themselves the next time this runs (see the watchdog below). */
 function applyDisplayBoardView(view){
   const d=bDoc(),w=bWin(); if(!d||!w||!view)return;
   (view.inerts||[]).forEach(id=>{const el=d.getElementById(id);if(el)el.classList.add("inert");});
+  let openNow=false; try{ openNow=!!w.modal.is_open; }catch(e){}
+  const shown = openNow ? ((d.querySelector(".active-question")||{}).id || null) : null;
   if(view.cellId){
     const cell=d.getElementById(view.cellId);
-    if(cell && displayShownCell!==view.cellId){
+    if(cell && shown!==view.cellId){
       try{w.hideModal&&w.hideModal();}catch(e){}
       let ok=false;
       try{ w.modal.show(cell,true); ok=!!w.modal.is_open; }catch(e){ ok=false; }  // commit only on success
-      if(ok){ displayShownCell=view.cellId; displayRevealed=false; }
+      if(ok){ displayShownCell=view.cellId; displayRevealed=false; revealAskedFor=null; }
     }
-    if(displayShownCell===view.cellId && view.revealed && !displayRevealed){ try{w.modal.reveal();}catch(e){} displayRevealed=true; }
-  } else if(displayShownCell){
+    // ask for the reveal once per opened cell — never in a loop, even if it no-ops
+    if(view.revealed && shown===view.cellId && revealAskedFor!==view.cellId){
+      try{w.modal.reveal();}catch(e){}
+      revealAskedFor=view.cellId; displayRevealed=true;
+    }
+  } else if(openNow){
     try{w.hideModal&&w.hideModal();}catch(e){}
-    displayShownCell=null; displayRevealed=false;
+    displayShownCell=null; displayRevealed=false; revealAskedFor=null;
   }
 }
 
@@ -921,7 +971,14 @@ function renderQrBig(){
 
 /* ---------- TV window ---------- */
 let tvWin=null;
-function openTv(){ tvWin=window.open("index.html?screen=display","triviaTV"); if(tvWin){tvWin.focus(); setTimeout(pushState,400);} else toast("Allow pop-ups for this page, then retry"); }
+function openTv(){
+  // Carry the launch params through, so the TV resolves the same boards even on
+  // a cold open (state.boards covers it too — belt and braces).
+  const q=new URLSearchParams(location.search); q.set("screen","display");
+  tvWin=window.open("index.html?"+q.toString(),"triviaTV");
+  if(tvWin){tvWin.focus(); setTimeout(pushState,400); setTimeout(pushBoardView,600);}
+  else toast("Allow pop-ups for this page, then retry");
+}
 
 /* ---------- toast ---------- */
 let toastT=null;
@@ -944,6 +1001,10 @@ if(SCREEN==="control"){
   document.getElementById("qrCloseBtn").addEventListener("click",closeQr);
   document.getElementById("qrOverlay").addEventListener("click",e=>{ if(e.target.id==="qrOverlay")closeQr(); });
   document.getElementById("clearBuzzBtn").addEventListener("click",()=>{ clearBuzzedName(); updateBuzzBanner(); });
+  document.getElementById("dupWarnClose").addEventListener("click",function(){
+    const w=document.getElementById("dupWarn"); w.dataset.dismissed="1"; w.style.display="none";
+  });
+  bc.postMessage({type:"hello",id:WIN_ID});   // any other Control window will answer
   document.getElementById("createRoomBtn").addEventListener("click",createRoom);
   document.getElementById("copyLinkBtn").addEventListener("click",()=>{ navigator.clipboard.writeText(joinURL()).then(()=>toast("Join link copied")); });
   document.getElementById("disconnectBtn").addEventListener("click",()=>{ if(confirm("Disconnect this buzzer room?"))disconnectRoom(); });
@@ -975,7 +1036,20 @@ if(SCREEN==="control"){
     playBc.onmessage=(e)=>{ if(e.data && e.data.type==="ddShowClue" && wagerState && wagerState.active && wagerState.open){ hostAction("wagerLock").then(refreshBuzzSoon); } };
   }catch(e){}
 }
-if(SCREEN==="display"){ updateBuzzer(); updateBuzzFirst(); bc.postMessage({type:"ping"}); }
+if(SCREEN==="display"){
+  updateBuzzer(); updateBuzzFirst(); bc.postMessage({type:"ping"});
+  /* Watchdog: opening a clue on control MUST open it here. A dropped message, a
+     late-loading iframe or a board that closed its own modal all self-correct
+     within half a second — applyDisplayBoardView() is idempotent and reads the
+     board's real state, so this is a no-op whenever the TV is already right. */
+  setInterval(()=>{
+    if(Array.isArray(state.boards) && state.boards.length && state.boards.join("|")!==BOARDS.join("|")){
+      BOARDS=state.boards.slice(); ensureBoard(); return;      // control switched boards
+    }
+    ensureBoard();                                            // no-op unless the src drifted
+    if(state.boardView) applyDisplayBoardView(state.boardView);
+  },500);
+}
 updateQrOverlay();
 </script>
 </body>
