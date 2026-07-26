@@ -18,13 +18,18 @@
   .grid-row-questions { flex: 1 1 0; }
 
   .grid-cell { min-width: 0; }
+  /* Category headers: identical boxes across the row, text centred both ways.
+     The row is as tall as its tallest heading, and every box stretches to fill
+     it — so one category wrapping to two lines can't leave the others short. */
+  .grid-row-cats .grid-cell { min-height: clamp(56px, 9vh, 120px); display: flex; }
+  .grid-row-cats .grid-cell > .cell { flex: 1; min-width: 0; display: flex; }
   .grid-row-cats .cell-inner.cat-cell {
-    height: 100%; display: grid; place-items: center; text-align: center; padding: 8px;
+    flex: 1; min-width: 0; display: grid; place-items: center; text-align: center; padding: 8px;
     background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 52%, #000));
     color: #fff; font-weight: 900; text-transform: uppercase; letter-spacing: .01em; line-height: 1.1;
     border-radius: 12px; font-size: clamp(13px, 1.7vw, 30px); box-shadow: var(--shadow-2);
+    overflow-wrap: break-word;
   }
-  .grid-row-cats .grid-cell { min-height: clamp(56px, 9vh, 120px); }
 
   .grid-row-questions .grid-cell { display: flex; }
   .cell.points {
