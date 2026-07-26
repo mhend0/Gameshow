@@ -747,6 +747,7 @@ let buzzSyncTimer=null;
 let lastPlayers=[];        // latest buzzer player list (for score/wager matching)
 let wagerState=null;       // latest wager round from /api/state (or null)
 let buzzerSupportsWager=false;  // does the deployed buzzer understand wager rounds?
+let buzzerStateSeen=false;      // have we heard back from the buzzer at least once?
 const cleanRoom = c => String(c||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6);
 
 const joinURL = ()=> BUZZER_BASE + "/?code=" + state.buzzerCode;
@@ -809,6 +810,7 @@ function startBuzzSync(){
     try{ r=await fetch(BUZZER_BASE+"/api/state?code="+state.buzzerCode).then(x=>x.json()); }catch(e){}
     if(r && !r.error){
       lastPlayers = r.players||[];
+      buzzerStateSeen = true;
       buzzerSupportsWager = ("wager" in r);
       wagerState = r.wager || null;
       syncTeamsFromPlayers(r.players||[]);
@@ -934,9 +936,18 @@ function updateWagerMarks(){
 }
 /* Detect a Daily Double question open in the board iframe (class set by play-board). */
 function isDailyDoubleOpen(){ const d=bDoc(); return !!(d && d.querySelector(".active-question .cell.points.dd")); }
-function maybeAutoWager(){
-  if(!state.buzzerCode || !state.hostToken || !buzzerSupportsWager) return;   // no room / old buzzer → just the visual splash
+/* A Daily Double should push every phone to the wager screen. If it can't, the
+   host needs to know *now* — silence here reads as "the buzzers are broken". */
+function maybeAutoWager(tries){
   if(wagerState && wagerState.active) return;                    // already running
+  if(!state.buzzerCode){ toast("Daily Double — no buzzer room, take wagers verbally"); return; }
+  if(!state.hostToken){ toast("Daily Double — paste the host token to run wagers from here"); return; }
+  if(!buzzerStateSeen){                       // buzzer hasn't answered yet — give it a moment
+    if((tries||0) < 3) setTimeout(()=>maybeAutoWager((tries||0)+1), 1200);
+    else toast("Daily Double — can't reach the buzzer, take wagers verbally");
+    return;
+  }
+  if(!buzzerSupportsWager){ toast("Daily Double — this buzzer has no wager screen (redeploy it)"); return; }
   openWagerRound();
 }
 /* DISPLAY: embed the live buzzer board in the TV column */
