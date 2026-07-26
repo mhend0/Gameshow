@@ -166,6 +166,7 @@
 <body>
   <!-- ===== CONTROL top bar ===== -->
   <div id="topbar" class="control-only">
+    <button class="btn" id="homeBtn" title="Back to Game Show Studio home">⌂ Home</button>
     <div class="brand">TRIVIA NIGHT<small>CONTROL</small></div>
     <div id="boardTag">Board 1 of 2</div>
     <div class="award-wrap"><label>Award</label><input id="awardInput" type="number" step="10" value="100"></div>
@@ -798,6 +799,10 @@ function toast(msg){ const el=document.getElementById("toast"); el.textContent=m
 
 /* ---------- wire control buttons ---------- */
 if(SCREEN==="control"){
+  document.getElementById("homeBtn").addEventListener("click",()=>{
+    // State auto-saves, so returning to the console resumes where you left off.
+    if(confirm("Return to the Game Show Studio home screen?\n\nYour scores and progress are saved — you can come back to this game.")) location.href="home.html";
+  });
   document.getElementById("openTvBtn").addEventListener("click",openTv);
   document.getElementById("nextBtn").addEventListener("click",goNext);
   document.getElementById("setupBtn").addEventListener("click",showSetup);
