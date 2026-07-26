@@ -7,6 +7,7 @@
 
 import { AssetRepo } from "./repos.js";
 import { makeAsset, makeMediaRef } from "./models.js";
+import { storageUsage } from "./store.js";
 
 const KIND_BY_PREFIX = { image: "image", audio: "audio", video: "video" };
 
@@ -26,6 +27,87 @@ export function fileToDataUrl(file) {
   });
 }
 
+/* ---------------------------------------------------------------------------
+   Image budget. Assets live in localStorage as data URLs, and the browser caps
+   that at a few MB per site. A phone photo is 3–8 MB and base64 adds ~33% on
+   top, so a handful of straight-from-the-camera pictures fills the whole store
+   and every later save fails. Photos are therefore resized and re-encoded on
+   import — 1400px is still sharper than any TV will show a clue at.
+--------------------------------------------------------------------------- */
+const MAX_EDGE = 1400;
+const JPEG_Q = 0.82;
+const WEBP_Q = 0.85;
+
+/** Bytes a data URL actually occupies once base64 is decoded. */
+export function dataUrlBytes(d) {
+  const s = String(d || ""), i = s.indexOf(",");
+  if (i < 0) return s.length;
+  return Math.floor((s.length - i - 1) * 3 / 4);
+}
+
+let _webp = null;
+function webpSupported() {
+  if (_webp === null) {
+    try {
+      const c = document.createElement("canvas"); c.width = c.height = 1;
+      _webp = c.toDataURL("image/webp").startsWith("data:image/webp");
+    } catch { _webp = false; }
+  }
+  return _webp;
+}
+
+async function decodeImage(src) {
+  if (typeof src !== "string" && typeof createImageBitmap === "function") {
+    try { return await createImageBitmap(src); } catch { /* fall through */ }
+  }
+  const url = typeof src === "string" ? src : URL.createObjectURL(src);
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("decode failed"));
+      img.src = url;
+    });
+  } finally {
+    if (typeof src !== "string") setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}
+
+const canvasToBlob = (canvas, mime, q) => new Promise(res => canvas.toBlob(res, mime, q));
+
+/**
+ * Resize/re-encode an image so it fits the storage budget.
+ * @returns {Promise<{data:string,mime:string,size:number,width:number,height:number}|null>}
+ *          null when the original should be kept untouched.
+ */
+export async function compressImage(src, mime = "", originalBytes = 0) {
+  if (/gif/i.test(mime)) return null;                    // never flatten an animation
+  const keepsAlpha = /png|webp/i.test(mime);
+  const outMime = keepsAlpha ? (webpSupported() ? "image/webp" : null) : "image/jpeg";
+  if (!outMime) return null;                             // can't re-encode without losing alpha
+
+  let bmp;
+  try { bmp = await decodeImage(src); } catch { return null; }
+  const w0 = bmp.width, h0 = bmp.height;
+  if (!w0 || !h0) return null;
+
+  const scale = Math.min(1, MAX_EDGE / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, 0, 0, w, h);
+  if (bmp.close) bmp.close();
+
+  const blob = await canvasToBlob(canvas, outMime, outMime === "image/webp" ? WEBP_Q : JPEG_Q);
+  if (!blob) return null;
+  // Already lean enough — leave it alone rather than re-compressing every pass.
+  if (scale === 1 && originalBytes && blob.size >= originalBytes * 0.9) return null;
+  const data = await blobToDataUrl(blob);
+  return { data, mime: outMime, size: blob.size, width: w, height: h };
+}
+
 export const AssetService = {
   /**
    * Import a File into the portable asset store.
@@ -33,11 +115,40 @@ export const AssetService = {
    * @returns {Promise<import("./models.js").MediaRef>}
    */
   async importFile(file) {
-    const data = await fileToDataUrl(file);
     const kind = kindFromMime(file.type);
-    const asset = makeAsset({ kind, name: file.name || "asset", mime: file.type, data, size: file.size || 0 });
-    AssetRepo.put(asset);
+    let data = null, mime = file.type, size = file.size || 0;
+    if (kind === "image") {
+      const small = await compressImage(file, file.type, file.size || 0);
+      if (small) { data = small.data; mime = small.mime; size = small.size; }
+    }
+    if (!data) data = await fileToDataUrl(file);
+    const asset = makeAsset({ kind, name: file.name || "asset", mime, data, size });
+    AssetRepo.put(asset);                                // throws StorageFullError when full
     return makeMediaRef({ kind, assetId: asset.id, alt: file.name || "" });
+  },
+
+  /**
+   * Shrink every image already in the store — the way back from a full store
+   * without deleting anyone's clues.
+   * @returns {Promise<{count:number, before:number, after:number}>}
+   */
+  async recompressAll() {
+    const before = storageUsage();
+    let count = 0;
+    for (const a of AssetRepo.list()) {
+      if (!a || a.kind !== "image") continue;
+      const d = String(a.data || "");
+      if (!d.startsWith("data:")) continue;
+      const mime = d.slice(5, d.indexOf(";") > 0 ? d.indexOf(";") : d.indexOf(",")) || a.mime || "";
+      const wasBytes = dataUrlBytes(d);
+      let small = null;
+      try { small = await compressImage(d, mime, wasBytes); } catch { small = null; }
+      if (small && dataUrlBytes(small.data) < wasBytes) {
+        AssetRepo.put({ ...a, data: small.data, mime: small.mime, size: small.size });
+        count++;
+      }
+    }
+    return { count, before, after: storageUsage() };
   },
 
   /**

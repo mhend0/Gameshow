@@ -32,8 +32,43 @@ function readRaw(collection) {
   }
 }
 
+/** Thrown when localStorage is full, so callers can offer to reclaim space. */
+export class StorageFullError extends Error {
+  constructor(collection) {
+    super(`Storage is full — "${collection}" could not be saved.`);
+    this.name = "StorageFullError";
+    this.collection = collection;
+  }
+}
+
+// A quota overflow surfaces under several names/codes depending on the browser.
+function isQuotaError(e) {
+  return !!e && (
+    e.name === "QuotaExceededError" ||
+    e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    e.code === 22 || e.code === 1014
+  );
+}
+
 function writeRaw(collection, map) {
-  localStorage.setItem(keyFor(collection), JSON.stringify(map));
+  try {
+    localStorage.setItem(keyFor(collection), JSON.stringify(map));
+  } catch (e) {
+    if (isQuotaError(e)) throw new StorageFullError(collection);
+    throw e;
+  }
+}
+
+/** Bytes currently used by the platform's own `gsp:` keys. */
+export function storageUsage() {
+  let bytes = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(NS)) bytes += k.length + (localStorage.getItem(k) || "").length;
+    }
+  } catch { /* private mode */ }
+  return bytes * 2;   // localStorage stores UTF-16
 }
 
 function emit(collection) {

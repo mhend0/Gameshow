@@ -94,6 +94,8 @@
     <input class="board-name" id="boardName" />
     <span class="save-badge" id="saveBadge"><span class="dot"></span><span id="saveText">Saved</span></span>
     <span class="spacer"></span>
+    <span class="muted" id="storageInfo" title="Media storage used by all your boards"></span>
+    <button class="btn sm" id="shrinkBtn" title="Resize stored photos to free up space">🗜 Free up space</button>
     <button class="btn sm" id="settingsBtn">⚙ Board settings</button>
     <button class="btn sm" id="previewBtn">👁 Preview</button>
     <button class="btn primary sm" id="playBtn">▶ Play</button>
@@ -118,6 +120,7 @@
     import { BoardRepo } from "./platform/core/repos.js";
     import { makeClue, makeCategory, richIsEmpty } from "./platform/core/models.js";
     import { AssetService } from "./platform/core/assets.js";
+    import { storageUsage } from "./platform/core/store.js";
     import { renderBoardGrid } from "./platform/ui/board-view.js";
     import { el, toast, modal, confirmDialog } from "./platform/ui/ui.js";
 
@@ -296,17 +299,70 @@
 
       async function addFiles(files) {
         const media = files.filter(f => /^(image|audio|video)\//.test(f.type));
+        let added = 0, full = false;
         for (const f of media) {
-          const ref = await AssetService.importFile(f);
-          rc.media = rc.media || [];
-          rc.media.push(ref);
+          try {
+            const ref = await AssetService.importFile(f);
+            rc.media = rc.media || [];
+            rc.media.push(ref);
+            added++;
+          } catch (e) {
+            // Never fail silently — a dropped photo that just vanishes reads as
+            // "the editor is broken".
+            if (e && e.name === "StorageFullError") { full = true; break; }
+            console.error(e);
+            toast(`Couldn't add ${f.name || "that file"}: ${e && e.message ? e.message : e}`);
+          }
         }
-        if (media.length) { commit(); renderMedia(); toast(`${media.length} file${media.length === 1 ? "" : "s"} added`); }
+        if (added) { commit(); renderMedia(); }
+        if (full) storageWasFull = true;
+        updateStorageInfo();
+        if (full) {
+          toast(`Storage is full — ${added ? added + " added, " : ""}click “Free up space” to shrink stored photos`, 6000);
+        } else if (added) {
+          toast(`${added} file${added === 1 ? "" : "s"} added`);
+        }
       }
 
       wrap.append(ta, dz, fileInput);
       return wrap;
     }
+
+    /* ---------- media storage ----------
+       Boards keep their media inside the browser's own storage, which is only a
+       few MB. Show how full it is, and offer a one-click way to shrink what's
+       already stored rather than making the host delete clues. */
+    const fmtMB = (b) => (b / 1048576).toFixed(1) + " MB";
+    // The browser never tells us its storage cap (it varies by browser and
+    // profile), so don't guess a threshold — flag it red only once a save has
+    // actually been refused.
+    let storageWasFull = false;
+    function updateStorageInfo() {
+      const box = document.getElementById("storageInfo"); if (!box) return;
+      box.textContent = `Media: ${fmtMB(storageUsage())}` + (storageWasFull ? " — FULL" : "");
+      box.style.color = storageWasFull ? "#e8452b" : "";
+      box.style.fontWeight = storageWasFull ? "700" : "";
+    }
+    document.getElementById("shrinkBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("shrinkBtn");
+      const label = btn.textContent;
+      btn.disabled = true; btn.textContent = "Shrinking…";
+      try {
+        const r = await AssetService.recompressAll();
+        const saved = Math.max(0, r.before - r.after);
+        if (r.count) storageWasFull = false;          // there's room again
+        toast(r.count
+          ? `Shrank ${r.count} image${r.count === 1 ? "" : "s"} — freed ${fmtMB(saved)} (now ${fmtMB(r.after)})`
+          : "Nothing left to shrink — images are already at their smallest", 5000);
+      } catch (e) {
+        console.error(e);
+        toast("Couldn't shrink images: " + (e && e.message ? e.message : e), 5000);
+      } finally {
+        btn.disabled = false; btn.textContent = label;
+        updateStorageInfo();
+      }
+    });
+    updateStorageInfo();
 
     /* ---------- structure ops ---------- */
     document.getElementById("addCat").addEventListener("click", () => {

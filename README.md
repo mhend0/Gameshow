@@ -93,6 +93,10 @@ inside the TV page). A floated window looks the same to your audience.
 
 - **Everything is saved** as you go (scores, which board, used tiles). If a window
   refreshes or reopens, it picks up where you left off.
+- **Photos are resized when you add them** (max 1400px) — a straight-from-the-phone
+  photo is far bigger than the browser will let a board store. The Editor shows how
+  much media storage you're using; if it ever fills up, **🗜 Free up space** shrinks
+  the photos already stored instead of you having to delete clues.
 - Needs an **internet connection** (the boards load their images, and Buzzonk is online).
 - To **start a brand‑new game**, open **⚙ Setup → Reset everything**.
 - When you're completely done, just close the Terminal window (that stops the server).
