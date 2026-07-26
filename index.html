@@ -364,6 +364,7 @@ const boardLoading = document.getElementById("boardLoading");
 
 let currentBoardSrc = null;
 let displayShownCell = null, displayRevealed = false, revealAskedFor = null;
+let lastOpenedCell = null;   // so awarding points after closing still greys the right tile
 
 /* Reconcile persisted progress with the launched session/board (control only).
    A newly launched run starts at board 1; scores/teams are kept so the host can
@@ -377,6 +378,7 @@ if(SCREEN==="control"){
     state.boardIndex = 0;
     state.completedPrompted = BOARDS.map(()=>false);
     state.boardView = {cellId:null,revealed:false,inerts:[]};
+    state.played = {};                 // a new run starts with every tile available
   }
   state.boards = BOARDS.slice();     // the TV follows this, not its own URL
   if(state.boardIndex >= BOARDS.length) state.boardIndex = Math.max(0, BOARDS.length-1);
@@ -391,7 +393,7 @@ if(SCREEN==="control"){
 function defaultState(){
   return {
     teams:[{name:"Team 1",score:0},{name:"Team 2",score:0},{name:"Team 3",score:0}],
-    boardIndex:0, award:100, boards:[],
+    boardIndex:0, award:100, boards:[], played:{},
     buzzerCode:"", hostToken:"", buzzSynced:false,
     buzzedName:"", qrOverlay:false,
     completedPrompted:[false,false],
@@ -469,6 +471,7 @@ function setupBoard(){
   try{w.renderState({page:"game"});}catch(e){}
   try{d.getElementById("gameplay").style.filter="none";}catch(e){}
   try{w.dispatchEvent(new Event("resize"));}catch(e){}
+  applyPlayed();                                                  // restore greyed-out tiles
   if(SCREEN==="control"){ try{w.do_autoplay=false;}catch(e){} }   // TV plays media; laptop stays quiet
   else { try{w.do_autoplay=true;}catch(e){}
          // renderState() above closes any modal, so re-sync the mirror from scratch
@@ -546,7 +549,7 @@ if(SCREEN==="control"){
     updateHostAnswer(v.cellId);
     // question open / close / reveal transitions
     if(v.cellId!==prevCellId){
-      if(v.cellId) onQuestionOpen(); else onQuestionClose();
+      if(v.cellId){ lastOpenedCell=v.cellId; onQuestionOpen(); } else onQuestionClose();
       prevCellId=v.cellId;
     }
     updateBuzzBanner();
@@ -643,7 +646,27 @@ function adjust(i,delta){
   if(row){const el=row.querySelector(".tscore");el.style.color=delta>0?"#7CFC9B":"#ff8a7a";el.style.transform="scale(1.18)";
     setTimeout(()=>{el.style.transition=".4s";el.style.color="";el.style.transform="";},20);}
 }
-function markCurrentAnswered(){ const d=bDoc(); if(!d)return; const c=d.querySelector(".active-question"); if(c)c.classList.add("inert"); }
+/* A tile the host has played stays greyed for the rest of the board. Kept in
+   shared state (not just as a DOM class) so it survives a refresh of either
+   window and shows up on the TV too. */
+function markCurrentAnswered(){
+  const d=bDoc(); const c=d&&d.querySelector(".active-question");
+  markPlayed(c ? c.id : lastOpenedCell);   // scoring after closing the clue still counts
+}
+function markPlayed(cellId){
+  if(!cellId) return;
+  const key=String(state.boardIndex);
+  if(!state.played || typeof state.played!=="object") state.played={};
+  const arr = state.played[key] = state.played[key] || [];
+  if(arr.indexOf(cellId)===-1) arr.push(cellId);
+  applyPlayed();
+  pushState();          // persist + mirror to the TV
+}
+function applyPlayed(){
+  const d=bDoc(); if(!d)return;
+  const arr=(state.played && state.played[String(state.boardIndex)]) || [];
+  arr.forEach(id=>{ const el=d.getElementById(id); if(el) el.classList.add("inert"); });
+}
 
 /* ---- CONTROL: show the correct response to the host only (never on TV) ---- */
 let hostAnsCell=null;
@@ -1047,6 +1070,7 @@ if(SCREEN==="display"){
       BOARDS=state.boards.slice(); ensureBoard(); return;      // control switched boards
     }
     ensureBoard();                                            // no-op unless the src drifted
+    applyPlayed();
     if(state.boardView) applyDisplayBoardView(state.boardView);
   },500);
 }
