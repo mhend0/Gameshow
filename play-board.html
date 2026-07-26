@@ -68,6 +68,17 @@
   }
   #question-modal .question.reveal { display: block; animation: qmIn .3s var(--ease); }
   #question-modal .question .ans-media { margin-top: 14px; }
+  /* Answer takes the screen over: the clue steps aside so the response (and its
+     picture) get the whole modal instead of being pushed off the bottom. */
+  #question-modal.takeover .qm-clue,
+  #question-modal.takeover .qm-media { display: none; }
+  #question-modal.takeover .question.reveal {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: min(2vh, 18px); border-top: none; padding-top: 0;
+  }
+  #question-modal.takeover .question .ans-media { margin-top: 0; }
+  #question-modal.takeover .question img,
+  #question-modal.takeover .question video { max-height: 68vh; max-width: 100%; border-radius: 14px; box-shadow: var(--shadow-3); }
   .qm-hint { color: var(--text-2); font-size: 14px; font-weight: 600; letter-spacing: .02em; }
   .dd-flag { display: inline-flex; align-items: center; gap: 6px; color: var(--gold); }
 
@@ -294,6 +305,7 @@
         const q = modalEl.querySelector(".question");
         q.className = "question"; q.style.display = "none"; q.innerHTML = "";
         modalEl.querySelector(".qm-hint").textContent = "Reveal Correct Response  ·  Space";
+        modalEl.classList.remove("takeover");
         modalEl.classList.add("open");     // clue is loaded underneath…
         this.is_open = true;
 
@@ -320,12 +332,21 @@
           const res = AssetService.resolve(ref); if (!res) continue;
           appendMedia(q, res, true);
         }
-        q.classList.add("reveal"); q.style.display = "block";
+        // A picture clue already fills the screen, so an answer stacked underneath
+        // falls outside the modal and can't be seen. When either side carries
+        // media the answer takes the screen over instead of sharing it.
+        const clueHasMedia = (clue.prompt?.media || []).length > 0;
+        const ansHasMedia = (clue.response?.media || []).length > 0;
+        const takeover = clueHasMedia || ansHasMedia;
+        modalEl.classList.toggle("takeover", takeover);
+        q.classList.add("reveal");
+        q.style.display = takeover ? "flex" : "block";   // inline, so it beats the stylesheet either way
         modalEl.querySelector(".qm-hint").textContent = "Continue  ·  Esc";
         this.is_open = true;
       },
       hide() {
         modalEl.classList.remove("open");
+        modalEl.classList.remove("takeover");
         ddSplash.classList.remove("show");
         const q = modalEl.querySelector(".question");
         q.classList.remove("reveal"); q.style.display = "none"; q.innerHTML = "";
