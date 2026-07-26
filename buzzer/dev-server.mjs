@@ -8,7 +8,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;   // PORT=3100 node dev-server.mjs
 const rooms = new Map();
 
 const rid = (n = 16) => Array.from({ length: n }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]).join("");
@@ -70,9 +70,8 @@ const server = createServer(async (req, res) => {
     if (room.buzzed[rnd].has(b.playerId)) return json(res, 200, { already: true });
     room.buzzed[rnd].add(b.playerId);
     room.order[rnd].push({ pid: b.playerId, name: room.players[b.playerId].name, t: Date.now() });
-    const n = room.order[rnd].length;
-    if (n === 1) room.open = false;              // first buzz locks
-    return json(res, 200, { ok: true, order: n });
+    // stays open after the first buzz so the rest queue up behind them
+    return json(res, 200, { ok: true, order: room.order[rnd].length });
   }
 
   if (url.pathname === "/api/state") {

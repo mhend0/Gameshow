@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Buzzers</title>
 <style>
-  :root{--gold:#ffcc00;--good:#2fbf5b;--bad:#e8452b;}
+  :root{--gold:#ffcc00;--silver:#cfd6e6;--bronze:#d9a066;--good:#2fbf5b;--bad:#e8452b;}
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
   body{background:#070a24;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -24,6 +24,11 @@
   .bz.first{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold) inset,0 0 24px rgba(255,204,0,.28);background:linear-gradient(180deg,#2a2a12,#191908);}
   .bz.first .nm{font-size:40px;}
   .bz.first .pos{font-size:44px;}
+  /* silver / bronze read as a podium without competing with the leader */
+  .bz.second{border-color:var(--silver);box-shadow:0 0 0 1px var(--silver) inset;background:linear-gradient(180deg,#1b2140,#12162e);}
+  .bz.third{border-color:var(--bronze);box-shadow:0 0 0 1px var(--bronze) inset;background:linear-gradient(180deg,#241d15,#171208);}
+  .bz.second .nm,.bz.third .nm{font-size:34px;}
+  .bz.second .pos,.bz.third .pos{font-size:38px;}
   .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#5b6394;gap:14px;}
   .empty .big{font-size:70px;}
   .empty.live{color:#9aa3d6;}
@@ -37,6 +42,9 @@ const CODE = (new URLSearchParams(location.search).get("code")||"").toUpperCase(
 const list=document.getElementById("list"), hdr=document.getElementById("hdr"), stateEl=document.getElementById("state");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let renderedKey="";
+const MEDALS=["🥇","🥈","🥉"];
+const rankLabel=o=>MEDALS[o-1]||("#"+o);
+const rankClass=o=>o===1?"first":o===2?"second":o===3?"third":"";
 
 async function tick(){
   if(!CODE){ list.innerHTML='<div class="empty"><div class="big">🔔</div><div>No room code.</div></div>'; return; }
@@ -51,10 +59,10 @@ async function tick(){
     if(!r.buzzes.length){
       list.innerHTML = `<div class="empty ${r.open?'live':''}"><div class="big">${r.open?'🟢':'🔔'}</div>
         <div style="font-size:22px;font-weight:700">${r.open?'Buzzers are OPEN':'Get ready…'}</div>
-        <div>${r.open?'First to buzz wins':'Waiting for the host'}</div></div>`;
+        <div>${r.open?'Buzz in — the order is shown here':'Waiting for the host'}</div></div>`;
     } else {
-      list.innerHTML = r.buzzes.map(b=>`<div class="bz ${b.order===1?'first':''}">
-        <div class="pos">${b.order===1?'🥇':('#'+b.order)}</div><div class="nm">${esc(b.name)}</div></div>`).join("");
+      list.innerHTML = r.buzzes.map(b=>`<div class="bz ${rankClass(b.order)}">
+        <div class="pos">${rankLabel(b.order)}</div><div class="nm">${esc(b.name)}</div></div>`).join("");
     }
   }catch(e){ stateEl.textContent="reconnecting…"; }
 }

@@ -2,15 +2,16 @@
 //
 // The referee. One atomic Lua script decides buzz order — first tap to reach
 // the server wins, and (because Redis runs it atomically) ties are impossible.
-// First buzzer also locks the room, classic "first-in gets to answer" style.
+//
+// The room stays OPEN after the first buzz so everyone else can queue up behind
+// them: the host needs the running order to pivot to #2 when #1 gets it wrong.
+// One buzz per player (the SADD), and the host can still lock manually.
 import { getRedis, k, api, up, touch } from "../lib/store.js";
 
 const LUA = `
 if redis.call('HGET', KEYS[1], 'open') ~= '1' then return -2 end
 if redis.call('SADD', KEYS[2], ARGV[1]) == 0 then return -1 end
-local n = redis.call('RPUSH', KEYS[3], ARGV[2])
-if n == 1 then redis.call('HSET', KEYS[1], 'open', '0') end
-return n
+return redis.call('RPUSH', KEYS[3], ARGV[2])
 `;
 
 export default api(async (req, res) => {

@@ -211,9 +211,9 @@
         <div class="bell">🔔</div>
         <div class="bn"><span id="buzzFirstName">Someone</span><small>buzzed in first</small></div>
       </div>
-      <!-- Control: same thing for the host -->
+      <!-- Control: the full running order, so the host can pivot to #2 -->
       <div id="buzzBanner" class="control-only" style="display:none">
-        <span>🔔 <b id="buzzBannerName">Someone</b> buzzed in first</span>
+        <span id="buzzBannerName"></span>
         <button class="btn sm" id="clearBuzzBtn">Clear</button>
       </div>
     </div>
@@ -255,7 +255,8 @@
           </div>
           <p class="status" id="buzzStatus" style="margin-top:8px"></p>
           <p class="tiny" style="margin-top:6px;color:#8a93c8">Players who join are <b>added as teams automatically</b>.
-            Hit <b>Open buzzers</b> before each question — first to buzz shows on the TV.</p>
+            Hit <b>Open buzzers</b> before each question — everyone can buzz, and the
+            order (🥇 🥈 🥉) shows here and on the TV.</p>
         </div>
 
         <details style="margin-top:10px">
@@ -543,6 +544,7 @@ function applyDisplayBoardView(view){
 /* ---------- poll loop (control drives everything) ---------- */
 let lastViewKey="", lastPts=null, prevCellId=null;
 let lastBuzzRound=null, mutedRound=null;   // buzz round we're on / one to ignore leftovers from
+let lastBuzzes=[];                         // this round's buzzes, in order
 if(SCREEN==="control"){
   setInterval(()=>{
     const v=readBoardView(); if(!v)return;
@@ -587,13 +589,22 @@ function setBuzzedName(name){
    until the poll sees that, ignore the buzzes still sitting on the current round. */
 function clearBuzzedName(){
   setBuzzedName("");
+  lastBuzzes=[];
   mutedRound=lastBuzzRound;
   armBuzzers();
 }
+const MEDALS=["🥇","🥈","🥉"];
+const medalFor=(order)=>MEDALS[order-1]||("#"+order);
 function updateBuzzBanner(){
   const b=document.getElementById("buzzBanner"); if(!b)return;
-  if(state.buzzedName){ b.style.display="flex";
-    const n=document.getElementById("buzzBannerName"); if(n) n.textContent=state.buzzedName;
+  const n=document.getElementById("buzzBannerName");
+  if(lastBuzzes.length){
+    b.style.display="flex";
+    if(n) n.innerHTML = "🔔 " + lastBuzzes.slice(0,8)
+      .map((z,i)=>`<b>${medalFor(z.order||i+1)}</b> ${escapeAttr(z.name||"")}`).join(" &nbsp;·&nbsp; ");
+  } else if(state.buzzedName){                       // name known but list not polled yet
+    b.style.display="flex";
+    if(n) n.innerHTML = "🔔 <b>🥇</b> " + escapeAttr(state.buzzedName);
   } else b.style.display="none";
 }
 
@@ -815,11 +826,11 @@ function startBuzzSync(){
       wagerState = r.wager || null;
       syncTeamsFromPlayers(r.players||[]);
       renderWagerBar(); updateWagerMarks();
-      // announce whoever got in first this round (the server locks the room on
-      // the first buzz, so buzzes[0] is the winner — later taps can't overwrite it)
+      // Keep the whole running order for this round: buzzes[0] answers first,
+      // and the host needs #2, #3… to hand over to when they get it wrong.
       if(r.round!==lastBuzzRound){ lastBuzzRound=r.round; if(mutedRound!==r.round) mutedRound=null; }
-      const first=(r.buzzes||[])[0];
-      setBuzzedName(first && r.round!==mutedRound ? first.name : "");
+      lastBuzzes = (r.round===mutedRound) ? [] : (r.buzzes||[]);
+      setBuzzedName(lastBuzzes[0] ? lastBuzzes[0].name : "");
       const el=document.getElementById("buzzStatus");
       if(el) el.innerHTML=`Connected to <b style="color:var(--gold-bright)">${state.buzzerCode}</b> · ${(r.players||[]).length} player(s) joined`;
     }

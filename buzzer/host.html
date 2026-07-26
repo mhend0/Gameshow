@@ -26,6 +26,8 @@
   #buzzList{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;}
   .bz{display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#151d4d,#0e1436);border:1px solid var(--line);border-radius:12px;padding:14px 18px;}
   .bz.first{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset;background:linear-gradient(180deg,#2a2a12,#1a1a08);}
+  .bz.second{border-color:#cfd6e6;box-shadow:0 0 0 1px #cfd6e6 inset;}
+  .bz.third{border-color:#d9a066;box-shadow:0 0 0 1px #d9a066 inset;}
   .bz .pos{font-size:26px;font-weight:900;color:var(--gold);width:52px;text-align:center;}
   .bz .nm{font-size:22px;font-weight:700;}
   .bz.first .nm{font-size:26px;}
@@ -146,8 +148,9 @@ function startPolling(){
       if(!r.buzzes.length){
         list.innerHTML = `<div class="empty">${r.open?"Buzzers are open — waiting for the first buzz…":"Click <b>Open buzzers</b> to start a question."}</div>`;
       } else {
-        list.innerHTML = r.buzzes.map(b=>`<div class="bz ${b.order===1?'first':''}">
-          <div class="pos">${b.order===1?'🥇':('#'+b.order)}</div><div class="nm">${esc(b.name)}</div></div>`).join("");
+        const MEDALS=["🥇","🥈","🥉"];
+        list.innerHTML = r.buzzes.map(b=>`<div class="bz ${b.order===1?'first':b.order===2?'second':b.order===3?'third':''}">
+          <div class="pos">${MEDALS[b.order-1]||('#'+b.order)}</div><div class="nm">${esc(b.name)}</div></div>`).join("");
       }
       // players
       renderPlayers(r.players);

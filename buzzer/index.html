@@ -24,6 +24,10 @@
   #buzz.locked{filter:grayscale(.75) brightness(.7);pointer-events:none;box-shadow:0 12px 0 #333,0 16px 30px rgba(0,0,0,.4);
     background:radial-gradient(circle at 50% 35%,#8a8a8a,#5c5c5c);}
   #buzz.first{background:radial-gradient(circle at 50% 35%,#63e58a,#2fbf5b 60%,#1e9e46);box-shadow:0 12px 0 #14622b,0 16px 30px rgba(0,0,0,.5);}
+  /* A medal fills the button — and must not be washed out by the locked filter. */
+  #buzz.medal{font-size:min(40vw,170px);line-height:1;filter:none;pointer-events:none;}
+  #buzz.medal.silver{background:radial-gradient(circle at 50% 35%,#eef1f7,#aab3c6 60%,#828a9c);box-shadow:0 12px 0 #5c6373,0 16px 30px rgba(0,0,0,.45);}
+  #buzz.medal.bronze{background:radial-gradient(circle at 50% 35%,#f2b98c,#c8823f 60%,#9c6127);box-shadow:0 12px 0 #6d4319,0 16px 30px rgba(0,0,0,.45);}
   .pill{padding:6px 14px;border-radius:999px;font-size:14px;font-weight:700;}
   .pill.open{background:rgba(47,191,91,.18);color:#7CFC9B;}
   .pill.closed{background:rgba(232,69,43,.18);color:#ff9683;}
@@ -204,7 +208,9 @@ async function doBuzz(){
 }
 function renderMine(){
   const btn=document.getElementById("buzz");
-  if(myOrder===1){ btn.className="first"; btn.textContent="1st!"; setStatus("🔔 You buzzed FIRST!","#7CFC9B"); }
+  if(myOrder===1){ btn.className="first medal"; btn.textContent="🥇"; setStatus("🔔 You buzzed FIRST!","#7CFC9B"); }
+  else if(myOrder===2){ btn.className="medal silver"; btn.textContent="🥈"; setStatus("2nd in — ready if they miss it","#ffd27a"); }
+  else if(myOrder===3){ btn.className="medal bronze"; btn.textContent="🥉"; setStatus("3rd in — ready if they miss it","#ffd27a"); }
   else if(myOrder){ btn.className="locked"; btn.textContent="#"+myOrder; setStatus("Buzzed in — position #"+myOrder,"#ffd27a"); }
 }
 function setStatus(t,color){ const s=document.getElementById("st"); if(s){ s.textContent=t; s.style.color=color||"#fff"; } }
