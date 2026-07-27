@@ -74,7 +74,7 @@ export const FEUD_DEFAULTS = {
   strikes: FEUD_RULES.strikes,
   passOrPlay: false,
   stealOneGuess: true,
-  revealRestOnLoss: true,
+  revealRestOnLoss: false,
   fastMoneyEnabled: true,
   fastMoneyTarget: FEUD_RULES.fastMoney.target,
   fastMoneySeconds: [...FEUD_RULES.fastMoney.seconds],
