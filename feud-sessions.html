@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Feud Sessions · Game Show Studio</title>
+<link rel="stylesheet" href="platform/ui/theme.css" />
+<style>
+  body { --accent:#ff8a3d; --accent-2:#ffc24d; }
+
+  .page-head { display:flex; align-items:flex-end; gap:16px; margin:28px 0 20px; flex-wrap:wrap; }
+  .page-head h1 { font-size:30px; }
+  .page-head .sub { color:var(--text-2); font-size:14px; margin-top:4px; }
+</style>
+</head>
+<body>
+  <div id="topbar"></div>
+  <main class="wrap">
+    <div class="page-head">
+      <div>
+        <h1>🎯 Feud Sessions</h1>
+      </div>
+    </div>
+    <div id="panel"></div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { el, topbar } from "./platform/ui/ui.js";
+    import { mountFeudSessions } from "./platform/ui/panels/feud-sessions-panel.js";
+    import { ensureFeudSeeded } from "./platform/core/feud-seed.js";
+
+    document.getElementById("topbar").replaceWith(
+      topbar({ active: "Feud Sessions", links: [
+        { href: "home.html", label: "Home" },
+        { href: "surveys.html", label: "Surveys" },
+        { href: "feud-sessions.html", label: "Feud Sessions" },
+      ], right: [
+        el("a", { class: "btn primary sm", href: "feud.html?screen=control", text: "▶ Open Console" }),
+      ]})
+    );
+
+    ensureFeudSeeded();
+    mountFeudSessions(document.getElementById("panel"));
+  </script>
+</body>
+</html>

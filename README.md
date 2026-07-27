@@ -1,7 +1,7 @@
 # Game Show Studio
 
-A local **game-show platform** — **Jeopardy** and **Wheel of Fortune** today, built to host
-more games over time. Create and edit your content, plan sessions (a running order), and run
+A local **game-show platform** — **Jeopardy**, **Wheel of Fortune** and **Family Feud**
+today, built to host more games over time. Create and edit your content, plan sessions (a running order), and run
 the show live on a TV with buzzers, phones and a carry-over scoreboard.
 
 ## The platform
@@ -9,7 +9,13 @@ the show live on a TV with buzzers, phones and a carry-over scoreboard.
 Double-click **`Start Trivia Night.command`** and your browser opens the **Home screen**
 (`home.html`). From there:
 
-- **Home** — pick a game. Each one opens its Control Console at your most-recent session.
+- **Home** — pick a game. Clicking a card opens that game's Control Console at your
+  most-recent session. Each card also has a **⚙** button holding the screens that belong
+  to *that game* and nothing else, so Jeopardy's boards and the wheel's puzzles never
+  clutter each other.
+
+Jeopardy's screens, under its **⚙**:
+
 - **Boards** (`boards.html`) — your Jeopardy board library: search, sort, tag, favourite,
   duplicate, preview, and open the **Editor** (`editor.html`) to edit categories, clues,
   answers, point values, Daily Doubles, media (drag-and-drop, copied into the app so the
@@ -17,9 +23,18 @@ Double-click **`Start Trivia Night.command`** and your browser opens the **Home 
 - **Sessions** (`sessions.html`) — plan a night: choose which boards play and in what order.
   A session *references* boards, so one board can be reused across many sessions. **Launch**
   drops straight into the console for that run.
+Wheel of Fortune's screens, under its **⚙**:
+
 - **Puzzles** (`puzzles.html`) — your Wheel of Fortune library. You type an **answer** and a
   **category**; the app lays the board out for you.
 - **Wheel Sessions** (`wheel-sessions.html`) — the running order of puzzles, one per round.
+
+Family Feud's screens, under its **⚙**:
+
+- **Surveys** (`surveys.html`) — your Family Feud library. You type a **question** and its
+  **answers**; the app ranks them and builds the board (and will work out the points too).
+- **Feud Sessions** (`feud-sessions.html`) — the running order: which surveys play, whether
+  each is a single, double or triple round, and the five on the Fast Money card.
 
 All content lives on your machine (browser storage under the `gsp:` namespace). The platform
 architecture lives in `platform/core` (data models, store, repositories, importer, assets)
@@ -96,7 +111,8 @@ inside the TV page). A floated window looks the same to your audience.
 
 ## Wheel of Fortune
 
-Open it from **Home → Wheel of Fortune**, or from the **🎡 Open Wheel Console** button.
+Open it from the **Wheel of Fortune** card on Home (its **⚙** holds the puzzle library and
+the session planner), or from the **🎡 Open Wheel Console** button at the top.
 It runs the same two-window way as Jeopardy: **Control** on your laptop, **TV Display**
 on the big screen (**🖥 TV Display** opens it).
 
@@ -176,6 +192,109 @@ Two ways to play, switched under **📱 Phones**:
 The phone service is the same one the buzzers use, so it needs an internet connection
 and a deployed copy of `buzzer/`. Verbal mode needs neither.
 
+---
+
+## Family Feud
+
+Open it from the **Family Feud** card on Home (its **⚙** holds the survey library and the
+session planner). Same two windows as the others: **Control** on your laptop, **TV Display**
+on the big screen (**🖥 TV Display** opens it).
+
+### Writing surveys
+
+In **Surveys** you type a **question** and its **answers**. The board builds itself —
+ranked by points, laid out one column or two the way the set is. Points are optional:
+**✨ Work out the points** fills in a believable survey ladder (a big top answer, a long
+tail, adding up to 100) that you can then edit.
+
+Each answer also takes an **also accept** list — other wordings that should count as the
+same answer. You rarely need it, because the console matches what the room actually says
+(see below), but it's there for the ones only your family would say.
+
+**⚡ Bulk add** takes a whole night at once: a question, its answers under it, a blank line
+between surveys. Add `| 34` after an answer to set its points, or leave them off.
+
+### Planning a night
+
+In **Feud Sessions** you pick the surveys that play as rounds and set what each is worth —
+**single**, **double** or **triple** — plus the five surveys on the **Fast Money** card.
+Sessions reference the library, so one survey can play in many nights.
+
+### The face-off
+
+**👐 Start the face-off** puts a countdown on the TV and arms the buzzers. The two players
+at the front of each family's line are the ones who can buzz; whoever gets there first
+answers, and the other is locked out. If a family isn't on phones, buzz for them with
+**A** / **B**.
+
+Give the top answer and that family takes the board outright. Anything else and the other
+player gets one go — the higher-ranked answer wins the board. If neither finds anything,
+the next two players face off instead.
+
+### Playing the board
+
+The fastest thing you can do is **type what they said and press Enter**.
+
+The console matches it against the board the way you would: it forgives spelling,
+plurals and the words around the answer, so *"grab a coffee"* finds **Make coffee** and
+*"scroll on their phone"* finds **Check their phone** — but *"drink tea"* doesn't find
+**Drink coffee**, because it's a different answer. When it isn't sure it shows you the
+three closest with a confidence on each; click one, or press **↓** and Enter. Enter with
+nothing close is a **strike**. You can always just click the answer on the board instead —
+the host's board shows what's behind every slot.
+
+Three strikes and the other family gets **one guess to steal the lot**. Right and they
+take the whole board; wrong and the family who built it keeps it. Either way the rest of
+the answers turn over, and the pot goes up by the round's multiplier.
+
+### Fast Money
+
+Two players, five questions, one clock each — 20 seconds, then 25. Type each answer and
+press Enter; **Tab** passes and puts that question at the back of the queue so you come
+back to it if the clock allows. The app scores every answer against the survey as you go.
+
+When the turn ends you **reveal the scores one at a time** (space bar) — ding for a hit,
+buzz for nothing — then bring in the second player, whose answers stay off the board until
+their turn. A repeat of the first player's answer is **flagged the moment you type it**,
+which is exactly when you need to ask for a different one. Any score can be corrected by
+hand before it's revealed. Clear the target (200 by default) and the family wins.
+
+### Host keyboard shortcuts
+
+| When | Key | Does |
+| --- | --- | --- |
+| Round not started | `Space` | Start the face-off |
+| Buzzers armed | `A` / `B` | Buzz for that family |
+| Anywhere | Type + `Enter` | Match what they said, or take a strike |
+| Answer box | `↓` `↑` | Move between the suggested answers |
+| Anywhere | `X` | Strike |
+| Board up | `1`–`8` | Reveal that answer |
+| Round over | `Space` | Next round |
+| Fast Money | `Space` | Start the clock / reveal the next score |
+| Fast Money | `Tab` | Pass |
+
+### Rule variations
+
+**⚙ Setup** holds the ones worth changing mid-night: verbal or phone answers, face-off
+buzzers on or off and how long the countdown runs, how many strikes, whether the rest of
+the board turns over at the end of a round, auto-advance, whether Fast Money plays at all,
+its target and both clocks, and how fast the board animates. **⚙ Overrides** is for putting
+the game back where it should be — adjust a score, un-reveal an answer, hand the board to
+the other family, or award the pot by hand.
+
+### Phones (optional)
+
+Under **📱 Phones**, **Create a room** and show the code (**📺 Show QR on TV**). Everyone
+who joins is added to a family, filling the two sides evenly — move anyone across in Setup.
+
+- **🗣 Verbal** (default) — the room answers out loud and you type it. No phones needed.
+- **📱 Phone answers** — the player whose turn it is gets a box on their phone. Their
+  answer arrives on your console as a card showing what they said and what it matches;
+  nothing reaches the board until you **accept** it. Face-off buzzers work either way.
+
+In Fast Money the questions go to the contestant's phone one at a time with the clock on
+it, and they can pass from there.
+
 ## Good to know
 
 - **Everything is saved** as you go (scores, which board or round, used tiles, called
@@ -198,10 +317,16 @@ and a deployed copy of `buzzer/`. Verbal mode needs neither.
   when you launch from a session/editor; the console drives it unchanged).
 - `puzzles.html` · `wheel-sessions.html` — the Wheel of Fortune puzzle library and running orders.
 - `wheel.html` — the live Wheel console (both Control and TV views).
-- `platform/core/*` — data models, store, repositories, board importer, asset system, and the
-  wheel's own domain core (`wheel.js`: puzzles, the board layout engine, the wedges, the rules).
+- `surveys.html` · `feud-sessions.html` — the Family Feud survey library and running orders.
+- `feud.html` — the live Family Feud console (both Control and TV views); its logic lives in
+  `platform/ui/feud-console.js`.
+- `platform/core/*` — data models, store, repositories, board importer, asset system, and each
+  game's own domain core (`wheel.js`: puzzles, the board layout engine, the wedges, the rules —
+  `feud.js`: surveys, the points ladder, the answer matcher, the rules).
 - `platform/ui/*` — design system (`theme.css`) and shared components (`ui.js`, `board-view.js`,
-  `puzzle-board.js`, `wheel-view.js`, `sfx.js`).
+  `puzzle-board.js`, `wheel-view.js`, `feud-board.js`, `sfx.js`), plus `panels/` — library and
+  session screens as mountable panels, so a standalone page and a game's settings tab are the
+  same code.
 - `serve.py` — the local web server the launcher starts. It's `http.server` plus "never cache",
   so an update can't leave your browser running half of the old app.
 - `board1.html`, `board2.html` — the original static boards (kept as a fallback; their content

@@ -45,7 +45,7 @@ const server = createServer(async (req, res) => {
     const host = rid(24);
     rooms.set(code, { host, open: false, round: 1, mode: "buzz", players: {}, buzzed: {}, order: {}, created: Date.now(),
       wagerActive: false, wagerOpen: false, wagerRound: 0, wager: {},
-      wheel: null, wsubs: [] });
+      chan: {} });
     return json(res, 200, { code, hostToken: host });
   }
 
@@ -107,52 +107,92 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { ok: true, amount });
   }
 
-  // ---- wheel: host pushes a snapshot, players push what they picked ----
-  if (url.pathname === "/api/wheel") {
+  // ---- game channels: host pushes a snapshot, players push what they did ----
+  // Mirrors lib/channel.js + api/<game>.js in production, including each game's
+  // own rule about who is allowed to speak.
+  const CHANNELS = {
+    wheel(st, player, body) {
+      const act = String(body.action || "");
+      if (act === "buzz") {
+        if ((st.lockedOut || []).includes(body.playerId)) return { reject: { lockedOut: true } };
+      } else if (st.activePid && st.activePid !== body.playerId) {
+        return { reject: { notYourTurn: true } };
+      }
+      if (act === "letter") {
+        const letter = String(body.letter || "").toUpperCase().slice(0, 1);
+        if (!/^[A-Z]$/.test(letter)) return { error: "Pick a letter" };
+        if ((st.called || []).includes(letter)) return { reject: { already: true } };
+        const vowel = "AEIOU".includes(letter);
+        if (vowel && !st.vowelsAllowed) return { reject: { notAllowed: "vowel" } };
+        if (!vowel && !st.consonantsAllowed) return { reject: { notAllowed: "consonant" } };
+        return { entry: { letter } };
+      }
+      if (act === "solve") {
+        const text = String(body.text || "").trim().slice(0, 120);
+        if (!text) return { error: "Type your answer" };
+        return { entry: { text } };
+      }
+      if (!["spin", "vowel", "buzz"].includes(act)) return { error: "Unknown action" };
+      return {};
+    },
+    feud(st, player, body) {
+      const act = String(body.action || "");
+      if (act === "buzz") {
+        if (!st.buzzOpen) return { reject: { closed: true } };
+        const allowed = st.buzzPids || [];
+        if (allowed.length && !allowed.includes(body.playerId)) return { reject: { notYourTurn: true } };
+        return {};
+      }
+      if (act === "answer") {
+        if (!st.activePid) return { reject: { closed: true } };
+        if (st.activePid !== body.playerId) return { reject: { notYourTurn: true } };
+        const text = String(body.text || "").trim().slice(0, 120);
+        if (!text) return { error: "Type an answer first" };
+        if ((st.pending || []).includes(body.playerId)) return { reject: { already: true } };
+        return { entry: { text } };
+      }
+      if (act === "pass") {
+        if (st.activePid !== body.playerId) return { reject: { notYourTurn: true } };
+        return {};
+      }
+      return { error: "Unknown action" };
+    },
+  };
+
+  const chanName = url.pathname.startsWith("/api/") ? url.pathname.slice(5) : "";
+  if (CHANNELS[chanName]) {
+    const validate = CHANNELS[chanName];
+    const slot = (room) => (room.chan = room.chan || {});
+
     if (req.method === "GET") {
       const room = rooms.get(up(url.searchParams.get("code")));
-      if (!room || !room.wheel) return json(res, 200, { state: null, subs: [] });
-      return json(res, 200, { state: room.wheel, subs: room.wsubs || [] });
+      const c = room && room.chan && room.chan[chanName];
+      if (!c || !c.state) return json(res, 200, { state: null, subs: [] });
+      return json(res, 200, { state: c.state, subs: c.subs || [] });
     }
     const room = rooms.get(up(b.code));
     if (!room) return json(res, 404, { error: "Room not found" });
+    const c = (slot(room)[chanName] = slot(room)[chanName] || { state: null, subs: [] });
 
     if (b.hostToken) {
       if (room.host !== b.hostToken) return json(res, 403, { error: "Bad host token" });
-      if (b.action === "push") { room.wheel = b.state || {}; return json(res, 200, { ok: true }); }
-      if (b.action === "drain") { const subs = room.wsubs || []; room.wsubs = []; return json(res, 200, { ok: true, subs }); }
-      if (b.action === "end") { room.wheel = null; room.wsubs = []; return json(res, 200, { ok: true }); }
+      if (b.action === "push") { c.state = b.state || {}; return json(res, 200, { ok: true }); }
+      if (b.action === "drain") { const subs = c.subs; c.subs = []; return json(res, 200, { ok: true, subs }); }
+      if (b.action === "end") { c.state = null; c.subs = []; return json(res, 200, { ok: true }); }
       return json(res, 400, { error: "Unknown host action" });
     }
 
     const player = room.players[b.playerId];
     if (!player) return json(res, 403, { error: "Not joined" });
-    if (!room.wheel) return json(res, 409, { error: "The wheel isn't running" });
-    const st = room.wheel;
-    const act = String(b.action || "");
-    if (act === "buzz") {
-      if ((st.lockedOut || []).includes(b.playerId)) return json(res, 200, { lockedOut: true });
-    } else if (st.activePid && st.activePid !== b.playerId) {
-      return json(res, 200, { notYourTurn: true });
-    }
+    if (!c.state) return json(res, 409, { error: "The game isn't running" });
 
-    const entry = { pid: b.playerId, name: player.name, action: act, seq: st.seq, t: Date.now() };
-    if (entry.action === "letter") {
-      const letter = String(b.letter || "").toUpperCase().slice(0, 1);
-      if (!/^[A-Z]$/.test(letter)) return json(res, 400, { error: "Pick a letter" });
-      if ((st.called || []).includes(letter)) return json(res, 200, { already: true });
-      const vowel = "AEIOU".includes(letter);
-      if (vowel && !st.vowelsAllowed) return json(res, 200, { notAllowed: "vowel" });
-      if (!vowel && !st.consonantsAllowed) return json(res, 200, { notAllowed: "consonant" });
-      entry.letter = letter;
-    } else if (entry.action === "solve") {
-      const text = String(b.text || "").trim().slice(0, 120);
-      if (!text) return json(res, 400, { error: "Type your answer" });
-      entry.text = text;
-    } else if (!["spin", "vowel", "buzz"].includes(entry.action)) {
-      return json(res, 400, { error: "Unknown action" });
-    }
-    (room.wsubs = room.wsubs || []).push(entry);
+    const verdict = validate(c.state, player, b) || {};
+    if (verdict.reject) return json(res, 200, verdict.reject);
+    if (verdict.error) return json(res, verdict.status || 400, { error: verdict.error });
+
+    const entry = { pid: b.playerId, name: player.name, action: String(b.action || ""),
+      seq: c.state.seq, t: Date.now(), ...(verdict.entry || {}) };
+    c.subs.push(entry);
     return json(res, 200, { ok: true, action: entry.action });
   }
 

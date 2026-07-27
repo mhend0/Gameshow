@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d2757">
+<title>Family Feud</title>
+<style>
+  :root{--blue:#2f6fd0;--gold:#ffcf5c;--orange:#ff8a3d;--good:#2fbf5b;--bad:#e8452b;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;}
+  body{background:#050b1a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+  header{flex:0 0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px;
+    background:linear-gradient(180deg,#123a7a,#0a1f4a);border-bottom:2px solid var(--gold);}
+  header .who{font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  header .fam{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#9fc0ff;}
+  header .score{margin-left:auto;font-size:15px;font-weight:900;color:var(--gold);}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px;min-height:0;overflow:auto;}
+
+  .pill{padding:6px 14px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.04em;}
+  .pill.you{background:rgba(255,138,61,.22);color:#ffc48a;}
+  .pill.wait{background:rgba(255,255,255,.08);color:#9fb0cc;}
+  h1{font-size:20px;margin:0;text-align:center;line-height:1.3;}
+  .sub{font-size:13.5px;color:#9fb0cc;text-align:center;line-height:1.45;}
+
+  /* the question and what's already up, so a phone can play along */
+  .qcard{width:100%;background:linear-gradient(180deg,#153b7f,#0d2657);border:1px solid rgba(255,255,255,.14);
+    border-radius:14px;padding:12px 14px;text-align:center;}
+  .qcard .q{font-size:15px;font-weight:800;line-height:1.35;}
+  .found{width:100%;display:flex;flex-direction:column;gap:5px;}
+  .found .row{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:9px;
+    background:linear-gradient(180deg,#2f6fd0,#17417f);font-size:13.5px;font-weight:700;text-transform:uppercase;}
+  .found .row .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .found .row .p{font-weight:900;color:#0b1f42;background:linear-gradient(180deg,#ffe9a8,#ffcf5c);
+    border-radius:5px;padding:1px 7px;}
+  .strikes{display:flex;gap:7px;}
+  .strikes i{width:26px;height:26px;border-radius:7px;background:rgba(255,255,255,.08);font-style:normal;
+    display:grid;place-items:center;font-size:14px;font-weight:900;color:transparent;}
+  .strikes i.on{background:linear-gradient(180deg,#f04438,#b42318);color:#fff;}
+
+  .acts{display:flex;gap:10px;width:100%;}
+  button.go{flex:1;background:var(--orange);border:none;color:#1c0d02;border-radius:14px;padding:16px;
+    font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;}
+  button.go.alt{background:var(--gold);}
+  button.go.ghost{background:transparent;border:1px solid rgba(255,255,255,.2);color:#fff;}
+  button.go:disabled{opacity:.35;}
+  /* the face-off buzzer wants to be the only thing on screen worth hitting */
+  button.go.buzz{width:min(72vw,300px);height:min(72vw,300px);border-radius:50%;font-size:34px;
+    letter-spacing:1px;background:radial-gradient(circle at 50% 35%,#ff6a4d,#e8452b 60%,#c62d16);color:#fff;
+    box-shadow:0 12px 0 #7a1408,0 16px 30px rgba(0,0,0,.5);flex:none;}
+  button.go.buzz:active{transform:translateY(10px);box-shadow:0 2px 0 #7a1408,0 6px 14px rgba(0,0,0,.5);}
+  input{width:100%;background:#040c1c;border:1px solid rgba(255,255,255,.18);border-radius:12px;color:#fff;
+    padding:15px;font-size:17px;text-align:center;font-family:inherit;}
+  input:focus{outline:none;border-color:var(--gold);}
+  .err{color:#ff9683;font-size:13px;text-align:center;min-height:16px;}
+  .foot{flex:0 0 auto;padding:8px;text-align:center;font-size:11.5px;color:#43536e;}
+  .logo{font-size:38px;text-align:center;}
+  form{display:flex;flex-direction:column;gap:12px;width:min(90vw,340px);}
+
+  /* fast money clock */
+  .clock{font-size:64px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;}
+  .clock.warn{color:#ffb020;}
+  .clock.urgent{color:#ff5d4d;}
+</style>
+</head>
+<body>
+  <header id="hdr" style="display:none">
+    <span class="who" id="whoName">—</span>
+    <span class="fam" id="whoFam"></span>
+    <span class="score" id="myScore"></span>
+  </header>
+  <main id="main"><div class="logo">👪</div><div class="sub">Loading…</div></main>
+  <div class="foot">Family Feud</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+let CODE = (qs.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const main = document.getElementById("main");
+const hdr = document.getElementById("hdr");
+let me = null;              // {playerId, name}
+let poll = null;
+let view = null;            // which screen is rendered, so we only redraw on change
+let lastSeq = null;
+let pending = null;         // what I just sent, before the host has acted on it
+
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const api = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const store = () => (CODE ? JSON.parse(localStorage.getItem("buzz_p_" + CODE) || "null") : null);
+const saveMe = () => localStorage.setItem("buzz_p_" + CODE, JSON.stringify(me));
+
+/* ---------------------------------------------------------- join flow */
+function showEnterCode(msg) {
+  hdr.style.display = "none";
+  main.innerHTML = `<div class="logo">👪</div><h1>Join the game</h1><div class="err">${esc(msg || "")}</div>
+    <form id="f"><input id="code" placeholder="ROOM CODE" value="${esc(CODE)}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase">
+    <button class="go" type="submit">Continue</button></form>`;
+  document.getElementById("f").onsubmit = (e) => {
+    e.preventDefault();
+    const c = document.getElementById("code").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (c) location.search = "?code=" + c;
+  };
+}
+function showEnterName(msg) {
+  hdr.style.display = "none";
+  main.innerHTML = `<div class="logo">👪</div><h1>Room ${esc(CODE)}</h1>
+    <div class="sub">Pick the name the host will see.</div><div class="err">${esc(msg || "")}</div>
+    <form id="f"><input id="name" placeholder="Your name" maxlength="24">
+    <button class="go" type="submit">Join</button></form>`;
+  const inp = document.getElementById("name");
+  inp.focus();
+  document.getElementById("f").onsubmit = async (e) => {
+    e.preventDefault();
+    const name = inp.value.trim();
+    if (!name) return;
+    const r = await api("/api/join", { code: CODE, name });
+    if (r.error) return showEnterName(r.error);
+    me = { playerId: r.playerId, name: r.name };
+    saveMe();
+    startPolling();
+  };
+}
+
+/* ------------------------------------------------------------ helpers */
+const myTeam = (st) => (st.teams || []).findIndex((t) => (t.pids || []).includes(me.playerId));
+
+function setHeader(st) {
+  hdr.style.display = "flex";
+  document.getElementById("whoName").textContent = me.name;
+  const ti = st ? myTeam(st) : -1;
+  const t = ti >= 0 ? st.teams[ti] : null;
+  document.getElementById("whoFam").textContent = t ? t.name : "";
+  document.getElementById("myScore").textContent = t ? String(t.total) : "";
+}
+
+function questionHtml(st) {
+  if (!st.question) return "";
+  return `<div class="qcard"><div class="q">${esc(st.question)}</div></div>`;
+}
+
+function foundHtml(st) {
+  if (!st.found || !st.found.length) return "";
+  return `<div class="found">${st.found.map((a) =>
+    `<div class="row"><span class="t">${esc(a.text)}</span><span class="p">${a.points}</span></div>`).join("")}</div>`;
+}
+
+function strikesHtml(st) {
+  if (!st.strikes) return "";
+  return `<div class="strikes">${Array.from({ length: st.maxStrikes || 3 }, (_, i) =>
+    `<i class="${i < st.strikes ? "on" : ""}">✗</i>`).join("")}</div>`;
+}
+
+/* ------------------------------------------------------------ screens */
+function render(st) {
+  setHeader(st);
+
+  if (st.phase === "fast-money") { fastMoneyScreen(st); return; }
+
+  // A face-off buzz is open to the two players at the front of the line, so it
+  // gets its own screen ahead of the whose-turn-is-it logic.
+  if (st.buzzOpen) { buzzScreen(st); return; }
+
+  const mine = st.activePid && st.activePid === me.playerId;
+  const key = ["main", st.seq, st.phase, mine, (st.found || []).length, st.strikes, pending].join("|");
+  if (key === view) return;
+  view = key;
+
+  if (pending) {
+    main.innerHTML = `${questionHtml(st)}<div class="pill you">SENT</div>
+      <h1>${esc(pending)}</h1><div class="sub">Waiting for the host…</div>`;
+    return;
+  }
+
+  if (mine) {
+    main.innerHTML = `${questionHtml(st)}<div class="pill you">YOUR TURN</div>
+      <h1>What's your answer?</h1>${strikesHtml(st)}
+      <form id="f"><input id="ans" placeholder="TYPE YOUR ANSWER" autocomplete="off" autocorrect="off" maxlength="120">
+        <button class="go" type="submit">Send it</button></form>
+      <div class="err" id="err"></div>${foundHtml(st)}`;
+    const inp = document.getElementById("ans");
+    inp.focus();
+    document.getElementById("f").onsubmit = (e) => {
+      e.preventDefault();
+      const text = inp.value.trim();
+      if (!text) { document.getElementById("err").textContent = "Type an answer first"; return; }
+      send({ action: "answer", text }, text.toUpperCase());
+    };
+    return;
+  }
+
+  const waiting = st.activeName ? `${st.activeName}'s turn` : "Watch the board";
+  main.innerHTML = `${questionHtml(st)}<div class="pill wait">${esc(waiting)}</div>
+    ${strikesHtml(st)}${foundHtml(st)}
+    <div class="sub">Hang tight — you're up soon.</div>`;
+}
+
+/** Face-off: one big button, first thumb wins. */
+function buzzScreen(st) {
+  const allowed = !st.buzzPids || !st.buzzPids.length || st.buzzPids.includes(me.playerId);
+  const key = ["buzz", st.seq, allowed, pending].join("|");
+  if (key === view) return;
+  view = key;
+
+  if (pending) {
+    main.innerHTML = `<div class="pill you">BUZZED IN</div><div class="logo">👐</div>
+      <h1>You're in!</h1><div class="sub">Say your answer out loud.</div>`;
+    return;
+  }
+  if (!allowed) {
+    main.innerHTML = `${questionHtml(st)}<div class="pill wait">FACE-OFF</div>
+      <h1>Not your turn at the buzzer</h1>
+      <div class="sub">Two players are facing off — you'll get your go.</div>`;
+    return;
+  }
+  main.innerHTML = `${questionHtml(st)}<div class="pill you">FACE-OFF</div>
+    <button class="go buzz" id="buzzBtn">BUZZ</button>
+    <div class="sub">First in answers first.</div><div class="err" id="err"></div>`;
+  document.getElementById("buzzBtn").addEventListener("click", () => send({ action: "buzz" }, "Buzzed in"));
+}
+
+/** Fast Money: the question comes to the phone one at a time, against the clock. */
+function fastMoneyScreen(st) {
+  const fm = st.fm || {};
+  const mine = st.activePid && st.activePid === me.playerId;
+  const key = ["fm", st.seq, fm.stage, mine, fm.secondsLeft, pending].join("|");
+  if (key === view) return;
+  view = key;
+
+  if (!mine) {
+    const onCard = (fm.contestantPids || []).includes(me.playerId);
+    main.innerHTML = `<div class="logo">⚡</div><div class="pill wait">FAST MONEY</div>
+      <h1>${onCard ? "You're up soon" : "Fast Money"}</h1>
+      <div class="sub">${onCard
+        ? "Keep this open — your questions arrive here."
+        : "Two players are up. Watch the big screen."}</div>`;
+    return;
+  }
+
+  const left = fm.secondsLeft == null ? "" : fm.secondsLeft;
+  const cls = left <= 3 ? "urgent" : left <= 8 ? "warn" : "";
+  main.innerHTML = `<div class="clock ${cls}">${left}</div>
+    ${questionHtml(st)}
+    <form id="f"><input id="ans" placeholder="YOUR ANSWER" autocomplete="off" autocorrect="off" maxlength="120">
+      <button class="go" type="submit">Lock it in</button></form>
+    <div class="acts"><button class="go ghost" id="passBtn">⇥ Pass</button></div>
+    <div class="err" id="err"></div>`;
+  const inp = document.getElementById("ans");
+  inp.focus();
+  document.getElementById("f").onsubmit = (e) => {
+    e.preventDefault();
+    const text = inp.value.trim();
+    if (!text) { document.getElementById("err").textContent = "Say something — or pass"; return; }
+    send({ action: "answer", text }, null);
+  };
+  document.getElementById("passBtn").addEventListener("click", () => send({ action: "pass" }, null));
+}
+
+/** Send what I did, then hold the screen until the host has acted on it. */
+async function send(body, label) {
+  pending = label;
+  view = null;
+  const r = await api("/api/feud", { code: CODE, playerId: me.playerId, ...body });
+  if (r && (r.error || r.notYourTurn || r.already || r.closed || r.lockedOut)) {
+    pending = null;
+    view = null;
+    tick();
+    const err = document.getElementById("err");
+    const msg = r.error
+      || (r.lockedOut ? "You're out of this one"
+        : r.notYourTurn ? "Someone beat you to it"
+          : r.already ? "The host is still on your last one"
+            : "That's closed now");
+    if (err) err.textContent = msg;
+    return;
+  }
+  navigator.vibrate && navigator.vibrate(50);
+  tick();
+}
+
+/* ------------------------------------------------------------ polling */
+async function tick() {
+  try {
+    const r = await fetch("/api/feud?code=" + CODE).then((x) => x.json());
+    const st = r && r.state;
+    if (!st) {
+      hdr.style.display = "flex";
+      if (view !== "idle-room") {
+        view = "idle-room";
+        setHeader(null);
+        main.innerHTML = `<div class="logo">👪</div><h1>Waiting for the host</h1>
+          <div class="sub">The game hasn't started yet. Keep this open.</div>`;
+      }
+      return;
+    }
+    // The host moving on is what clears a pending send — that's the signal it landed.
+    if (lastSeq !== null && st.seq !== lastSeq) pending = null;
+    lastSeq = st.seq;
+    render(st);
+  } catch { /* offline: leave the screen as it is and try again */ }
+}
+function startPolling() {
+  if (poll) clearInterval(poll);
+  tick();
+  poll = setInterval(tick, 900);
+}
+
+/* --------------------------------------------------------------- boot */
+(async function () {
+  if (!CODE) return showEnterCode();
+  me = store();
+  if (me && me.playerId) {
+    const r = await api("/api/join", { code: CODE, name: me.name, playerId: me.playerId });
+    if (r.error) { localStorage.removeItem("buzz_p_" + CODE); return showEnterName(r.error); }
+    me = { playerId: r.playerId, name: r.name };
+    saveMe();
+    startPolling();
+  } else {
+    const test = await fetch("/api/state?code=" + CODE).then((x) => x.json()).catch(() => ({ error: "offline" }));
+    if (test.error === "Room not found") showEnterCode("That room code wasn't found.");
+    else showEnterName();
+  }
+})();
+</script>
+</body>
+</html>

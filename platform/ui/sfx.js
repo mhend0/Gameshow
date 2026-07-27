@@ -253,6 +253,71 @@ export const sfx = {
     tone({ freq: 180, type: "square", dur: 0.9, gain: 0.2 });
     tone({ freq: 120, type: "sawtooth", dur: 0.9, gain: 0.14 });
   },
+
+  /* ---------------------------------------------------------- the Feud */
+
+  /**
+   * An answer landing on the board. The Feud's is a bell, not a chime: three
+   * quick strikes on the same note with the overtone ringing on underneath,
+   * and it brightens with the points so the top answer sounds like the top
+   * answer.
+   */
+  reveal(points = 20) {
+    if (muted) return;
+    const lift = Math.min(1, Math.max(0, points / 45));
+    const f = 880 + lift * 340;
+    [0, 0.085, 0.17].forEach((t, i) => {
+      tone({ freq: f, type: "sine", dur: 0.3 - i * 0.05, gain: 0.17, t, attack: 0.002 });
+      tone({ freq: f * 2.01, type: "sine", dur: 0.22, gain: 0.07, t, attack: 0.002 });
+    });
+    tone({ freq: f * 1.5, type: "sine", dur: 0.85, gain: 0.05, t: 0.17 });
+  },
+
+  /**
+   * A strike. Harsh, buzzing and unpleasant on purpose — and it drops a tone
+   * with each one, so the third strike sounds like the end of the round
+   * without anybody having to say so.
+   */
+  strike(n = 1) {
+    if (muted) return;
+    const base = [220, 185, 150][Math.min(2, Math.max(0, n - 1))];
+    const dur = n >= 3 ? 1.15 : 0.62;
+    tone({ freq: base, type: "square", dur, gain: 0.2 });
+    tone({ freq: base * 1.5, type: "sawtooth", dur, gain: 0.11 });
+    tone({ freq: base / 2, type: "square", dur, gain: 0.13 });
+    hiss({ dur: dur * 0.5, freq: 420, q: 1.2, gain: 0.09, attack: 0.004 });
+  },
+
+  /** Buzzers arming for a face-off: two players, one note each, then go. */
+  faceOffReady(step = 0) {
+    if (muted) return;
+    tone({ freq: 523.25 + step * 90, type: "triangle", dur: 0.16, gain: 0.15, attack: 0.003 });
+  },
+
+  /** Money going into the bank at the end of a round. */
+  bank(amount = 100) {
+    if (muted) return;
+    const steps = Math.min(9, 3 + Math.floor(amount / 60));
+    for (let i = 0; i < steps; i++) {
+      tone({ freq: 700 + i * 105, type: "triangle", dur: 0.1, gain: 0.12, t: i * 0.055 });
+      hiss({ t: i * 0.055, dur: 0.05, freq: 4800, q: 3, gain: 0.07, attack: 0.001 });
+    }
+    tone({ freq: 700 + steps * 105, type: "sine", dur: 0.6, gain: 0.1, t: steps * 0.055 });
+  },
+
+  /** A Fast Money answer being scored — one clean ping per point block. */
+  fastMoneyDing() {
+    if (muted) return;
+    tone({ freq: 1396.9, type: "sine", dur: 0.26, gain: 0.15, attack: 0.002 });
+    tone({ freq: 2093, type: "sine", dur: 0.18, gain: 0.06, t: 0.015 });
+  },
+
+  /** A Fast Money answer that scored nothing. */
+  fastMoneyBuzz() {
+    if (muted) return;
+    tone({ freq: 196, type: "square", dur: 0.42, gain: 0.17 });
+    tone({ freq: 147, type: "sawtooth", dur: 0.42, gain: 0.1 });
+  },
 };
 
 export default sfx;
