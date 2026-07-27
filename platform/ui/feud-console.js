@@ -161,6 +161,7 @@ if (isControl) {
     state.teams.forEach((t) => { t.total = 0; t.upIndex = 0; });
     state.podium = false;
     state.fm = null;
+    state.started = false;   // a new session gets its own title screen
     resetRoundState();
   }
   state.rounds = rows;

@@ -584,6 +584,7 @@ if (SCREEN === "control") {
     resetRoundState();
     state.players.forEach((p) => { p.total = 0; p.roundMoney = 0; });
     state.podium = false;
+    state.started = false;   // a new session gets its own title screen
   }
   state.rounds = rounds;
   if (sid) {

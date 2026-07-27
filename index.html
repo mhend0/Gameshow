@@ -533,6 +533,7 @@ if(SCREEN==="control"){
     state.completedPrompted = BOARDS.map(()=>false);
     state.boardView = {cellId:null,revealed:false,inerts:[]};
     state.played = {};                 // a new run starts with every tile available
+    state.started = false;             // a new session gets its own title screen
   }
   state.boards = BOARDS.slice();     // the TV follows this, not its own URL
   if(state.boardIndex >= BOARDS.length) state.boardIndex = Math.max(0, BOARDS.length-1);
