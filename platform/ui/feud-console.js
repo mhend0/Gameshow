@@ -1690,6 +1690,7 @@ function showSetup() {
     if (!confirm("Start the whole show again? Scores, rounds and Fast Money are cleared.")) return;
     state.teams.forEach((t) => { t.total = 0; t.upIndex = 0; });
     state.roundIndex = 0; state.fm = null; state.podium = false;
+    state.started = false;   // back to the title screen too
     renderPodium.done = false;
     resetRoundState(); pushState(); hideOverlay();
   });
