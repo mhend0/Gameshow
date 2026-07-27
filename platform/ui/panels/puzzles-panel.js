@@ -10,6 +10,8 @@ import { PuzzleRepo, layoutPuzzle, normaliseAnswer, lettersIn } from "../../core
 import { createPuzzleBoard, renderPuzzleBoard } from "../puzzle-board.js";
 import { el, toast, modal, confirmDialog, timeAgo } from "../ui.js";
 import { ensureWheelSeeded } from "../../core/wheel-seed.js";
+import * as wheelCsv from "../../core/wheel-csv.js";
+import { csvToolbar } from "../csv-import.js";
 
 /**
  * @param {HTMLElement} root
@@ -34,10 +36,11 @@ export function mountPuzzles(root) {
 
   const newBtn = el("button", { class: "btn primary", text: "＋ New Puzzle" });
   const bulkBtn = el("button", { class: "btn", text: "⚡ Bulk add" });
+  const csv = csvToolbar({ mapper: wheelCsv, getRecords: () => PuzzleRepo.list(), onChanged: render });
 
   root.innerHTML = "";
   root.append(
-    el("div", { class: "pp-head" }, [count, el("span", { class: "pp-spacer" }), bulkBtn, newBtn]),
+    el("div", { class: "pp-head" }, [count, el("span", { class: "pp-spacer" }), csv.templateBtn, csv.exportBtn, csv.importBtn, csv.fileInput, bulkBtn, newBtn]),
     el("div", { class: "pp-toolbar" }, [
       el("div", { class: "search pp-search" }, [el("span", { text: "🔎" }), search]),
       favBtn,
