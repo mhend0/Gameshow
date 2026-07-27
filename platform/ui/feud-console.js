@@ -249,6 +249,12 @@ let lastStrikes = 0;
 let scorecardStrikes = 0;
 let scorecardOwner = null;
 let strikeFlightSeq = 0;
+// A strike still waiting out its hold on the board, not yet collected by its
+// own flight timer — {timer, owner, indices}. Needed because a fast second
+// miss throws a fresh X up before the first one's timer fires, and that fresh
+// X wipes the board (flashStrike clears it first): the first strike's timer
+// would then find nothing there to fly.
+let pendingFlight = null;
 let shownBannerId = null;
 let shownAwardId = null;
 let shownGuessId = null;
@@ -290,6 +296,7 @@ function renderBoard() {
     scorecardStrikes = 0;
     scorecardOwner = null;
     strikeFlightSeq++;
+    if (pendingFlight) { clearTimeout(pendingFlight.timer); pendingFlight = null; }
   }
   board.setMultiplier(multiplier());
   board.applyRevealed(state.revealed, { animate: true });
@@ -311,6 +318,7 @@ function renderBoard() {
     // The host undoing a strike (or a round reset): sync instantly, no flight.
     board.setStrikes(state.strikes);
     strikeFlightSeq++;
+    if (pendingFlight) { clearTimeout(pendingFlight.timer); pendingFlight = null; }
     scorecardOwner = strikesOwnerIndex();
     scorecardStrikes = state.strikes;
   }
@@ -412,9 +420,20 @@ function teamStrikeBox(owner, index) {
  * nodes represent, in DOM order.
  */
 function scheduleStrikeFlight(owner, indices) {
+  // A previous strike's X may still be sitting on the board waiting for its
+  // own timer to collect it. flashStrike()/flashTripleStrike() just wiped
+  // the board to put up this new one, so that timer would find nothing
+  // there when it fires — settle the earlier strike's box right now instead
+  // of losing it silently.
+  if (pendingFlight) {
+    clearTimeout(pendingFlight.timer);
+    settleFlightNow(pendingFlight.owner, pendingFlight.indices);
+  }
+
   const speed = Number(state.settings.animationSpeed) || 1;
   const seq = strikeFlightSeq;
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    pendingFlight = null;
     if (seq !== strikeFlightSeq) return;           // a reset happened mid-hold
     const nodes = board.takeStrikeNodes();
     nodes.forEach((node, i) => {
@@ -427,6 +446,15 @@ function scheduleStrikeFlight(owner, indices) {
       });
     });
   }, Math.round(1700 / speed));
+  pendingFlight = { timer, owner, indices };
+}
+
+/** Light a strike's scorecard box(es) directly, skipping the flight — used
+ * when a faster follow-up strike beat this one to the punch. */
+function settleFlightNow(owner, indices) {
+  if (scorecardOwner !== owner) { scorecardOwner = owner; scorecardStrikes = 0; }
+  scorecardStrikes = Math.max(scorecardStrikes, Math.max(...indices) + 1);
+  renderTeams();
 }
 
 /**
