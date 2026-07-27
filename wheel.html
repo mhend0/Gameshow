@@ -997,7 +997,9 @@ function doSpin() {
     id: newId("spin"),
     index: pickWedgeIndex(wedges),
     turns: 4 + Math.floor(Math.random() * 3),
-    duration: 4200 + Math.round(Math.random() * 800),
+    // Long enough that the last few wedges tick past slowly — that crawl is
+    // where the room leans in, so it's the part worth paying for.
+    duration: 5900 + Math.round(Math.random() * 800),
     jitter: Math.random() * 2 - 1,
     at: Date.now(),
   };
@@ -1020,9 +1022,11 @@ async function runSpinIfNew() {
   if (!s || s.id === ranSpinId) return;
   ranSpinId = s.id;
   const elapsed = Date.now() - (s.at || 0);
-  // A window opened (or refreshed) after the fact shouldn't replay a spin the
-  // room already watched — it just adopts the result.
-  if (elapsed > s.duration + 4000) {
+  // A window that wasn't there when the wheel was thrown shouldn't replay it —
+  // starting a fresh 7-second animation now would land seconds after the spin
+  // the room actually watched. Anything but a live spin adopts the result.
+  // (A window present at the start sees this within a frame or two.)
+  if (elapsed > 1200) {
     wheel.setResting(state.wedgeIndex != null ? state.wedgeIndex : s.index);
     return;
   }

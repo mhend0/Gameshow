@@ -29,6 +29,11 @@ export function createWheel({ wedges = [], onTick, onSettle, showFlapper = true 
 
   let list = wedges.slice();
   let rot = 0;                 // current wheel rotation, degrees clockwise
+  /**
+   * The rotation label orientation is judged against — normally `rot`, but held
+   * at the *landing* rotation for the length of a spin. See drawWedgeLabel.
+   */
+  let flipRef = 0;
   let spinning = false;
   let landed = null;           // index resting at the pointer, once settled
   let flapper = 0;             // 0…1 flick, decays after each peg
@@ -112,7 +117,14 @@ export function createWheel({ wedges = [], onTick, onSettle, showFlapper = true 
       ctx.strokeStyle = "rgba(255,255,255,.5)";
       ctx.stroke();
     }
-    for (let i = 0; i < n; i++) drawWedgeLabel(list[i], i * step + rot, rIn, rOut, step);
+    // The +step/2 puts the changeover on a wedge boundary rather than on a wedge
+    // centre. Without it the landing jitter could drop the winning wedge either
+    // side of the line, so the label the room reads would face a different way
+    // from one spin to the next.
+    for (let i = 0; i < n; i++) {
+      const flip = mod360(i * step + flipRef + step / 2) > 180;
+      drawWedgeLabel(list[i], i * step + rot, rIn, rOut, step, flip);
+    }
 
     // hub
     const hub = ctx.createRadialGradient(cx - rIn * 0.3, cy - rIn * 0.4, rIn * 0.1, cx, cy, rIn);
@@ -150,8 +162,14 @@ export function createWheel({ wedges = [], onTick, onSettle, showFlapper = true 
    * bounded twice — by the depth of the wedge (how long the word can be) and by
    * its width at that radius (how tall the letters can be) — so "BANKRUPT" and
    * "900" both sit inside their own wedge without touching a neighbour.
+   *
+   * `flip` turns a label the right way up on the half of the wheel where radial
+   * text would otherwise read upside down. The caller decides it against
+   * `flipRef` rather than the live rotation, because judging it live puts the
+   * changeover at 0° — which is exactly where the pointer is, so every label
+   * visibly turned over at the moment it arrived at the selector.
    */
-  function drawWedgeLabel(w, mid, rIn, rOut, step) {
+  function drawWedgeLabel(w, mid, rIn, rOut, step, flip) {
     const cx = size / 2, cy = size / 2;
     const span = rOut - rIn;
     const rText = rIn + span * 0.52;
@@ -165,9 +183,8 @@ export function createWheel({ wedges = [], onTick, onSettle, showFlapper = true 
     ctx.translate(0, -rText);
     ctx.rotate(-Math.PI / 2);        // and the text runs up it
     // The real wheel lies flat, so every label faces its reader. Ours is
-    // vertical, where "always outward" would leave the left half upside down —
-    // so labels past the vertical flip to stay the right way up.
-    if (mod360(mid) > 180) ctx.rotate(Math.PI);
+    // vertical, where "always outward" would leave one half upside down.
+    if (flip) ctx.rotate(Math.PI);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = w.ink;
@@ -240,6 +257,9 @@ export function createWheel({ wedges = [], onTick, onSettle, showFlapper = true 
     spinning = true;
     landed = null;
     glow = 0;
+    // Orient every label for where it will come to rest, and leave it there for
+    // the whole spin. Nothing turns over mid-flight, least of all at the pointer.
+    flipRef = finalRot;
     let pegsPassed = pegCount(from, step);
 
     return new Promise((resolve) => {
@@ -297,6 +317,7 @@ export function createWheel({ wedges = [], onTick, onSettle, showFlapper = true 
       landed = target;
       glow = 1;
     }
+    flipRef = rot;
     draw();
   }
 
@@ -329,12 +350,21 @@ const mod360 = (d) => ((d % 360) + 360) % 360;
 const pegCount = (r, step) => Math.floor((r + step / 2) / step);
 
 /**
- * Deceleration curve. Quintic ease-out drops the speed hard early and then lets
- * the wheel drift for the last second — the shape that makes a spin feel heavy
- * rather than braked.
+ * Deceleration curve — two forces blended.
+ *
+ * A plain quintic ease-out looks right for half a second and then dies: it has
+ * covered 99.97% of the distance by 80% of the way through, so the wheel sits
+ * frozen for the last second and a half and there is nothing to anticipate.
+ * A plain quadratic (constant friction) keeps running but has no throw to it.
+ *
+ * Blending a hard initial kick with a gentler friction term gives both: the
+ * wheel leaves the hand at ~5× its average speed, and still ticks over eight
+ * wedges in the final two seconds, each one slower than the last.
  */
 function easeSpin(t) {
-  return 1 - Math.pow(1 - t, 5);
+  const kick = 1 - Math.pow(1 - t, 8);      // the throw
+  const drift = 1 - Math.pow(1 - t, 1.8);   // friction letting it run on
+  return kick * 0.55 + drift * 0.45;
 }
 
 /** A late nudge past the resting angle, so the final peg clicks over at the end. */
