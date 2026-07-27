@@ -1474,7 +1474,10 @@ function renderActions() {
 function renderStrikes() {
   const row = $("strikeRow");
   const n = state.settings.strikes;
-  $("strikePanel").style.display = state.phase === "fast-money" || state.phase === "game-over" ? "none" : "";
+  // These buttons write state.strikes directly, bypassing addStrike()'s phase
+  // checks — so they have to gate themselves. Only meaningful once a family
+  // actually has the board, same as the scorecard's own strike display.
+  $("strikePanel").style.display = state.phase === "play" || state.phase === "steal" ? "" : "none";
   $("potLabel").textContent = `${fmtScore(pot())} on the board`;
   if (row.children.length !== n + 1) {
     row.innerHTML = "";
