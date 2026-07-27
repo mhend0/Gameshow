@@ -135,6 +135,8 @@
     import { ensureWheelSeeded } from "./platform/core/wheel-seed.js";
     import { SurveyRepo, FeudSessionRepo } from "./platform/core/feud.js";
     import { ensureFeudSeeded } from "./platform/core/feud-seed.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     const grid = document.getElementById("games");
 

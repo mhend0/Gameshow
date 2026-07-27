@@ -27,6 +27,8 @@
   <script type="module">
     import { el, topbar } from "./platform/ui/ui.js";
     import { mountSessions } from "./platform/ui/panels/sessions-panel.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     document.getElementById("topbar").replaceWith(
       topbar({ active: "Sessions", links: [

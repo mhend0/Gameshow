@@ -21,6 +21,8 @@ import { createFeudBoard } from "./feud-board.js";
 import { sfx } from "./sfx.js";
 import { escapeHtml } from "./ui.js";
 import { newId } from "../core/ids.js";
+import { ready } from "../core/store.js";
+await ready;
 
 const params = new URLSearchParams(location.search);
 const SCREEN = params.get("screen") === "display" ? "display" : "control";

@@ -394,6 +394,8 @@ import { createWheel } from "./platform/ui/wheel-view.js";
 import { sfx } from "./platform/ui/sfx.js";
 import { escapeHtml } from "./platform/ui/ui.js";
 import { newId } from "./platform/core/ids.js";
+import { ready } from "./platform/core/store.js";
+await ready;
 
 const params = new URLSearchParams(location.search);
 const SCREEN = params.get("screen") === "display" ? "display" : "control";

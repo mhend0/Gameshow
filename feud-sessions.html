@@ -30,6 +30,8 @@
     import { el, topbar } from "./platform/ui/ui.js";
     import { mountFeudSessions } from "./platform/ui/panels/feud-sessions-panel.js";
     import { ensureFeudSeeded } from "./platform/core/feud-seed.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     document.getElementById("topbar").replaceWith(
       topbar({ active: "Feud Sessions", links: [

@@ -34,6 +34,8 @@
     import { el, topbar } from "./platform/ui/ui.js";
     import { mountPuzzles } from "./platform/ui/panels/puzzles-panel.js";
     import { ensureWheelSeeded } from "./platform/core/wheel-seed.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     document.getElementById("topbar").replaceWith(
       topbar({ active: "Puzzles", links: [

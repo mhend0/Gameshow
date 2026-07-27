@@ -119,10 +119,11 @@
   <script type="module">
     import { BoardRepo } from "./platform/core/repos.js";
     import { makeClue, makeCategory, richIsEmpty } from "./platform/core/models.js";
-    import { AssetService } from "./platform/core/assets.js";
-    import { storageUsage } from "./platform/core/store.js";
+    import { AssetService, assetStorageUsage } from "./platform/core/assets.js";
+    import { ready } from "./platform/core/store.js";
     import { renderBoardGrid } from "./platform/ui/board-view.js";
     import { el, toast, modal, confirmDialog } from "./platform/ui/ui.js";
+    await ready;
 
     const params = new URLSearchParams(location.search);
     const boardId = params.get("id");
@@ -274,10 +275,14 @@
       const renderMedia = () => {
         mediaList.innerHTML = "";
         (rc.media || []).forEach((ref, i) => {
-          const resolved = AssetService.resolve(ref);
           const thumb = el("div", { class: "media-thumb" });
-          if (resolved && resolved.kind === "image") thumb.appendChild(el("img", { src: resolved.url, alt: resolved.alt }));
-          else thumb.appendChild(el("span", { class: "kind", text: ref.kind === "audio" ? "🎵" : ref.kind === "video" ? "🎬" : "🖼" }));
+          const placeholder = el("span", { class: "kind", text: ref.kind === "audio" ? "🎵" : ref.kind === "video" ? "🎬" : "🖼" });
+          thumb.appendChild(placeholder);
+          // Bytes are fetched from IndexedDB on demand — swap the placeholder
+          // for the real thumbnail once resolved instead of blocking on it.
+          AssetService.resolve(ref).then((resolved) => {
+            if (resolved && resolved.kind === "image") placeholder.replaceWith(el("img", { src: resolved.url, alt: resolved.alt }));
+          });
           if (ref.src && !ref.assetId) thumb.appendChild(el("span", { class: "ext-badge", text: "EXT" }));
           thumb.appendChild(el("button", { class: "rm", html: "✕", title: "Remove", onClick: () => { rc.media.splice(i, 1); commit(); renderMedia(); } }));
           mediaList.appendChild(thumb);
@@ -339,7 +344,7 @@
     let storageWasFull = false;
     function updateStorageInfo() {
       const box = document.getElementById("storageInfo"); if (!box) return;
-      box.textContent = `Media: ${fmtMB(storageUsage())}` + (storageWasFull ? " — FULL" : "");
+      box.textContent = `Media: ${fmtMB(assetStorageUsage())}` + (storageWasFull ? " — FULL" : "");
       box.style.color = storageWasFull ? "#e8452b" : "";
       box.style.fontWeight = storageWasFull ? "700" : "";
     }
