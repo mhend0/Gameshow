@@ -9,6 +9,7 @@
 import { PuzzleRepo, layoutPuzzle, normaliseAnswer, lettersIn } from "../../core/wheel.js";
 import { createPuzzleBoard, renderPuzzleBoard } from "../puzzle-board.js";
 import { el, toast, modal, confirmDialog, timeAgo } from "../ui.js";
+import { ensureWheelSeeded } from "../../core/wheel-seed.js";
 
 /**
  * @param {HTMLElement} root
@@ -298,6 +299,7 @@ export function mountPuzzles(root) {
   favBtn.addEventListener("click", () => { state.favouritesOnly = !state.favouritesOnly; render(); });
 
   const unsubscribe = PuzzleRepo.subscribe(render);
+  ensureWheelSeeded();   // synchronous — first-run puzzles are ready before this returns
   render();
 
   return {

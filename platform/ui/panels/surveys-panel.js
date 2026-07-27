@@ -16,6 +16,7 @@ import {
 } from "../../core/feud.js";
 import { renderFeudBoard } from "../feud-board.js";
 import { el, toast, modal, confirmDialog, timeAgo } from "../ui.js";
+import { ensureFeudSeeded } from "../../core/feud-seed.js";
 
 const DIFFICULTY = ["", "Easy", "Fairly easy", "Medium", "Tricky", "Hard"];
 
@@ -459,6 +460,7 @@ Car trouble
   favBtn.addEventListener("click", () => { state.favouritesOnly = !state.favouritesOnly; render(); });
 
   const unsubscribe = SurveyRepo.subscribe(render);
+  ensureFeudSeeded();   // synchronous — first-run surveys are ready before this returns
   render();
 
   return {

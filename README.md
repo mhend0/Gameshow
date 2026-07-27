@@ -10,11 +10,14 @@ Double-click **`Start Trivia Night.command`** and your browser opens the **Home 
 (`home.html`). From there:
 
 - **Home** — pick a game. Clicking a card opens that game's Control Console at your
-  most-recent session. Each card also has a **⚙** button holding the screens that belong
-  to *that game* and nothing else, so Jeopardy's boards and the wheel's puzzles never
-  clutter each other.
+  most-recent session. Each card also has a **⚙** button that opens a settings page
+  (`settings.html?game=…`) with a tab for every screen that belongs to *that game* —
+  Jeopardy's boards and the wheel's puzzles never clutter each other, and each tab is a
+  URL you can bookmark or share (`&tab=…`). What tabs a game gets is entirely driven by
+  its entry in `platform/core/games.js`, so a future game brings its whole settings page
+  with it — no changes needed here.
 
-Jeopardy's screens, under its **⚙**:
+Jeopardy's tabs, under its **⚙**:
 
 - **Boards** (`boards.html`) — your Jeopardy board library: search, sort, tag, favourite,
   duplicate, preview, and open the **Editor** (`editor.html`) to edit categories, clues,
@@ -23,13 +26,13 @@ Jeopardy's screens, under its **⚙**:
 - **Sessions** (`sessions.html`) — plan a night: choose which boards play and in what order.
   A session *references* boards, so one board can be reused across many sessions. **Launch**
   drops straight into the console for that run.
-Wheel of Fortune's screens, under its **⚙**:
+Wheel of Fortune's tabs, under its **⚙**:
 
 - **Puzzles** (`puzzles.html`) — your Wheel of Fortune library. You type an **answer** and a
   **category**; the app lays the board out for you.
 - **Wheel Sessions** (`wheel-sessions.html`) — the running order of puzzles, one per round.
 
-Family Feud's screens, under its **⚙**:
+Family Feud's tabs, under its **⚙**:
 
 - **Surveys** (`surveys.html`) — your Family Feud library. You type a **question** and its
   **answers**; the app ranks them and builds the board (and will work out the points too).
@@ -311,6 +314,9 @@ it, and they can pass from there.
 ## Files
 
 - `home.html` — Game Show Studio home screen (the entry point).
+- `settings.html` — one settings page per game (`?game=jeopardy|wheel|family-feud`), tabbed
+  across whatever screens that game declares in `games.js`. Each standalone library/session
+  page below is the *same* tab, reachable directly by its own URL too.
 - `boards.html` · `editor.html` · `sessions.html` — board library, board editor, session planner.
 - `index.html` — the live Jeopardy console (both Control and TV views).
 - `play-board.html` — renders a data-model board for the console (replaces the static boards
