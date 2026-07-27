@@ -1,22 +1,25 @@
 # Game Show Studio
 
-A local **game-show platform** — Jeopardy today, built to host more games over time.
-Create and edit boards, plan sessions (a running order of boards), and run the show live
-on a TV with buzzers and a carry-over scoreboard.
+A local **game-show platform** — **Jeopardy** and **Wheel of Fortune** today, built to host
+more games over time. Create and edit your content, plan sessions (a running order), and run
+the show live on a TV with buzzers, phones and a carry-over scoreboard.
 
 ## The platform
 
 Double-click **`Start Trivia Night.command`** and your browser opens the **Home screen**
 (`home.html`). From there:
 
-- **Home** — pick a game. Jeopardy opens its Control Console at your most-recent session.
-- **Boards** (`boards.html`) — your board library: search, sort, tag, favourite, duplicate,
-  preview, and open the **Editor** (`editor.html`) to edit categories, clues, answers, point
-  values, Daily Doubles, media (drag-and-drop, copied into the app so the project stays
-  portable), difficulty and notes.
+- **Home** — pick a game. Each one opens its Control Console at your most-recent session.
+- **Boards** (`boards.html`) — your Jeopardy board library: search, sort, tag, favourite,
+  duplicate, preview, and open the **Editor** (`editor.html`) to edit categories, clues,
+  answers, point values, Daily Doubles, media (drag-and-drop, copied into the app so the
+  project stays portable), difficulty and notes.
 - **Sessions** (`sessions.html`) — plan a night: choose which boards play and in what order.
   A session *references* boards, so one board can be reused across many sessions. **Launch**
   drops straight into the console for that run.
+- **Puzzles** (`puzzles.html`) — your Wheel of Fortune library. You type an **answer** and a
+  **category**; the app lays the board out for you.
+- **Wheel Sessions** (`wheel-sessions.html`) — the running order of puzzles, one per round.
 
 All content lives on your machine (browser storage under the `gsp:` namespace). The platform
 architecture lives in `platform/core` (data models, store, repositories, importer, assets)
@@ -89,10 +92,95 @@ inside the TV page). A floated window looks the same to your audience.
 
 ---
 
+---
+
+## Wheel of Fortune
+
+Open it from **Home → Wheel of Fortune**, or from the **🎡 Open Wheel Console** button.
+It runs the same two-window way as Jeopardy: **Control** on your laptop, **TV Display**
+on the big screen (**🖥 TV Display** opens it).
+
+### Writing puzzles
+
+In **Puzzles** you enter two things — the **answer** and the **category**. That's it.
+The app wraps the answer across the board's four rows without splitting words, balances
+the line lengths and centres each line, exactly as the show does. The board next to the
+fields is the real thing, so you can see the layout as you type. If an answer can't fit,
+it tells you why instead of letting you find out mid-show.
+
+**⚡ Bulk add** takes a whole list at once — one per line, optionally `CATEGORY | ANSWER`.
+
+### Round types
+
+Every round in a session has a type, set in **Wheel Sessions** next to the puzzle.
+The console reshapes itself around whichever one is up, so there's only ever one set
+of controls on screen.
+
+- **🎡 Standard** — the wheel round. Its stakes come off the wheel.
+- **⚡ Toss-up** — nobody has a turn. The board uncovers itself one tile at a time and
+  the first player to buzz in gets a single guess at a fixed prize. Wrong and they're
+  locked out while the tiles keep coming; right and they take the money *and* control
+  of the next round. Buzz someone in with the 🔔 on their card, or press **1**–**9**.
+- **🏆 Bonus** — one player against the clock. It starts with whoever's had the best
+  night (or press 🏆 on anyone's card to pick them), gives them **R S T L N E** free,
+  takes **three consonants and a vowel**, then puts **ten seconds** on a countdown the
+  whole room can see.
+
+### Running a standard round
+
+The player whose turn it is can **Spin**, **Buy a vowel** ($250) or **Solve**.
+
+- **Spin** — the wheel replaces the puzzle while it turns, then hands the screen back.
+  Land on cash and they call a consonant, worth that much per tile. **Bankrupt** wipes
+  their round money, **Lose a Turn** just ends it, and **Free Play** lets them call
+  anything with nothing to lose.
+- **Wrong letter** — the turn passes. **Solve** — mark it right or wrong; solving pays out
+  the round money (minimum $1,000) and the totals carry into the next round.
+- **Next round →** moves on; the player who solved starts the next one.
+
+Everything else the room can throw at you is under **⚙ Overrides**: force a Bankrupt or
+Lose a Turn, un-call a letter, reveal the puzzle, or add and subtract money by hand.
+
+### Host keyboard shortcuts
+
+The buttons show their key, and the shortcuts only mean one thing at a time:
+
+| When | Key | Does |
+| --- | --- | --- |
+| Their turn | `Space` | Spin — or start the toss-up / bonus round |
+| Their turn | `V` | Buy a vowel |
+| Their turn | `S` | Solve |
+| Their turn | `→` | Skip to the next player |
+| Calling or picking a letter | `A`–`Z` | Call that letter |
+| Calling a letter | `Esc` | Cancel |
+| Solving | `Y` / `N` | Right / wrong |
+| Toss-up reveal | `1`–`9` | Buzz that player in |
+| Toss-up reveal | `Space` | Pause / resume the reveal |
+| Bonus, board up | `Space` | Start the ten seconds |
+| Round over | `Space` | Next round |
+
+Hovering a letter highlights the tiles it would turn, so you can confirm a call at a glance.
+
+### Phones (optional)
+
+Two ways to play, switched under **📱 Phones**:
+
+- **🗣 Verbal** (default) — players say their letter, you click it. No phones, no internet.
+- **📱 Phone picks** — **Create a room**, then show the code (**📺 Show QR on TV**).
+  Players join on their phones and whoever's turn it is gets their own letter grid, a
+  Spin button and a Solve box. Solving is **checked automatically** — spelling,
+  punctuation and case don't matter. Everyone who joins is added as a player here.
+  In a **toss-up** every phone shows one big **BUZZ IN** button instead, and the
+  server hands the round to whichever one reaches it first.
+
+The phone service is the same one the buzzers use, so it needs an internet connection
+and a deployed copy of `buzzer/`. Verbal mode needs neither.
+
 ## Good to know
 
-- **Everything is saved** as you go (scores, which board, used tiles). If a window
-  refreshes or reopens, it picks up where you left off.
+- **Everything is saved** as you go (scores, which board or round, used tiles, called
+  letters). If a window refreshes or reopens, it picks up where you left off — including
+  mid-spin.
 - **Photos are resized when you add them** (max 1400px) — a straight-from-the-phone
   photo is far bigger than the browser will let a board store. The Editor shows how
   much media storage you're using; if it ever fills up, **🗜 Free up space** shrinks
@@ -105,11 +193,17 @@ inside the TV page). A floated window looks the same to your audience.
 
 - `home.html` — Game Show Studio home screen (the entry point).
 - `boards.html` · `editor.html` · `sessions.html` — board library, board editor, session planner.
-- `index.html` — the live console (both Control and TV views).
+- `index.html` — the live Jeopardy console (both Control and TV views).
 - `play-board.html` — renders a data-model board for the console (replaces the static boards
   when you launch from a session/editor; the console drives it unchanged).
-- `platform/core/*` — data models, store, repositories, board importer, asset system.
-- `platform/ui/*` — design system (`theme.css`) and shared components (`ui.js`, `board-view.js`).
+- `puzzles.html` · `wheel-sessions.html` — the Wheel of Fortune puzzle library and running orders.
+- `wheel.html` — the live Wheel console (both Control and TV views).
+- `platform/core/*` — data models, store, repositories, board importer, asset system, and the
+  wheel's own domain core (`wheel.js`: puzzles, the board layout engine, the wedges, the rules).
+- `platform/ui/*` — design system (`theme.css`) and shared components (`ui.js`, `board-view.js`,
+  `puzzle-board.js`, `wheel-view.js`, `sfx.js`).
+- `serve.py` — the local web server the launcher starts. It's `http.server` plus "never cache",
+  so an update can't leave your browser running half of the old app.
 - `board1.html`, `board2.html` — the original static boards (kept as a fallback; their content
   is also imported into the editable library on first run).
 - `buzzer/` — the buzzer service (Buzzonk-compatible).

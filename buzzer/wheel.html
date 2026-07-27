@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b3d2e">
+<title>Wheel of Fortune</title>
+<style>
+  :root{--green:#18c29c;--gold:#ffcf5c;--good:#2fbf5b;--bad:#e8452b;--panel:#0a1a16;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;}
+  body{background:#05100d;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+  header{flex:0 0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px;
+    background:linear-gradient(180deg,#0d3327,#071a14);border-bottom:2px solid var(--gold);}
+  header .who{font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  header .money{margin-left:auto;font-size:15px;font-weight:900;color:var(--gold);}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px;min-height:0;overflow:auto;}
+
+  .pill{padding:6px 14px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.04em;}
+  .pill.you{background:rgba(24,194,156,.2);color:#7df0d3;}
+  .pill.wait{background:rgba(255,255,255,.08);color:#9fb4ad;}
+  h1{font-size:20px;margin:0;text-align:center;}
+  .sub{font-size:13.5px;color:#9fb4ad;text-align:center;line-height:1.45;}
+
+  /* the board, as text — enough to solve from */
+  .board{width:100%;background:#0c2b21;border:1px solid rgba(255,255,255,.12);border-radius:14px;
+    padding:12px;text-align:center;}
+  .board .cat{font-size:11px;font-weight:800;letter-spacing:.16em;color:var(--gold);text-transform:uppercase;margin-bottom:8px;}
+  .board .line{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:17px;font-weight:700;
+    letter-spacing:3px;line-height:1.7;word-break:break-word;}
+
+  /* letter grid */
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;width:100%;}
+  .lt{aspect-ratio:1;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:#12241f;
+    color:#fff;font-size:17px;font-weight:800;font-family:inherit;display:grid;place-items:center;cursor:pointer;}
+  .lt.vowel{background:#1c2140;border-color:rgba(150,140,255,.3);}
+  .lt:active{transform:scale(.94);}
+  .lt:disabled{opacity:.25;}
+  .lt.gone{opacity:.2;text-decoration:line-through;}
+
+  .acts{display:flex;gap:10px;width:100%;}
+  button.go{flex:1;background:var(--green);border:none;color:#04150f;border-radius:14px;padding:16px;
+    font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;}
+  button.go.alt{background:var(--gold);}
+  button.go.ghost{background:transparent;border:1px solid rgba(255,255,255,.2);color:#fff;}
+  button.go:disabled{opacity:.35;}
+  /* the toss-up buzzer wants to be the only thing on screen worth hitting */
+  button.go.buzz{width:min(72vw,300px);height:min(72vw,300px);border-radius:50%;font-size:34px;
+    letter-spacing:1px;background:radial-gradient(circle at 50% 35%,#ff6a4d,#e8452b 60%,#c62d16);color:#fff;
+    box-shadow:0 12px 0 #7a1408,0 16px 30px rgba(0,0,0,.5);flex:none;}
+  button.go.buzz:active{transform:translateY(10px);box-shadow:0 2px 0 #7a1408,0 6px 14px rgba(0,0,0,.5);}
+  input{width:100%;background:#04100c;border:1px solid rgba(255,255,255,.18);border-radius:12px;color:#fff;
+    padding:15px;font-size:17px;text-align:center;font-family:inherit;text-transform:uppercase;}
+  input:focus{outline:none;border-color:var(--gold);}
+  .err{color:#ff9683;font-size:13px;text-align:center;min-height:16px;}
+  .ok{color:#7df0d3;font-size:14px;font-weight:700;text-align:center;}
+  .foot{flex:0 0 auto;padding:8px;text-align:center;font-size:11.5px;color:#4a6259;}
+  .logo{font-size:38px;text-align:center;}
+  form{display:flex;flex-direction:column;gap:12px;width:min(90vw,340px);}
+</style>
+</head>
+<body>
+  <header id="hdr" style="display:none">
+    <span class="who" id="whoName">—</span>
+    <span class="money" id="myMoney"></span>
+  </header>
+  <main id="main"><div class="logo">🎡</div><div class="sub">Loading…</div></main>
+  <div class="foot">Wheel of Fortune</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+let CODE = (qs.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const main = document.getElementById("main");
+const hdr = document.getElementById("hdr");
+let me = null;              // {playerId, name}
+let poll = null;
+let view = null;            // which screen is rendered, so we only redraw on change
+let lastSeq = null;
+let pending = null;         // what I just sent, before the host has acted on it
+
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const api = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const store = () => (CODE ? JSON.parse(localStorage.getItem("buzz_p_" + CODE) || "null") : null);
+const saveMe = () => localStorage.setItem("buzz_p_" + CODE, JSON.stringify(me));
+
+/* ---------------------------------------------------------- join flow */
+function showEnterCode(msg) {
+  hdr.style.display = "none";
+  main.innerHTML = `<div class="logo">🎡</div><h1>Join the game</h1><div class="err">${esc(msg || "")}</div>
+    <form id="f"><input id="code" placeholder="ROOM CODE" value="${esc(CODE)}" maxlength="6" autocapitalize="characters">
+    <button class="go" type="submit">Continue</button></form>`;
+  document.getElementById("f").onsubmit = (e) => {
+    e.preventDefault();
+    const c = document.getElementById("code").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (c) location.search = "?code=" + c;
+  };
+}
+function showEnterName(msg) {
+  hdr.style.display = "none";
+  main.innerHTML = `<div class="logo">🎡</div><h1>Room ${esc(CODE)}</h1>
+    <div class="sub">Pick the name the host will see.</div><div class="err">${esc(msg || "")}</div>
+    <form id="f"><input id="name" placeholder="Your name" maxlength="24" style="text-transform:none">
+    <button class="go" type="submit">Join</button></form>`;
+  const inp = document.getElementById("name");
+  inp.focus();
+  document.getElementById("f").onsubmit = async (e) => {
+    e.preventDefault();
+    const name = inp.value.trim();
+    if (!name) return;
+    const r = await api("/api/join", { code: CODE, name });
+    if (r.error) return showEnterName(r.error);
+    me = { playerId: r.playerId, name: r.name };
+    saveMe();
+    startPolling();
+  };
+}
+
+/* ------------------------------------------------------------ screens */
+function setHeader(st) {
+  hdr.style.display = "flex";
+  document.getElementById("whoName").textContent = me.name;
+  const mine = st && st.money && st.money[me.playerId];
+  document.getElementById("myMoney").textContent = mine != null ? `$${Number(mine).toLocaleString()}` : "";
+}
+
+function boardHtml(st) {
+  if (!st.lines || !st.lines.length) return "";
+  return `<div class="board"><div class="cat">${esc(st.category || "—")}</div>
+    ${st.lines.map((l) => `<div class="line">${esc(l)}</div>`).join("")}</div>`;
+}
+
+function render(st) {
+  setHeader(st);
+
+  // A toss-up belongs to whoever gets there first, so it has its own screen
+  // ahead of the whose-turn-is-it logic.
+  if (st.phase === "tossup-reveal") { tossupScreen(st); return; }
+
+  const mine = st.activePid === me.playerId;
+  // A screen is identified by everything that changes what's on it, so typing
+  // into the solve box is never interrupted by a poll that changed nothing.
+  const key = [st.seq, st.phase, mine, (st.called || []).join(""), pending].join("|");
+  if (key === view) return;
+  view = key;
+
+  if (pending) {
+    main.innerHTML = `${boardHtml(st)}<div class="pill you">SENT</div>
+      <h1>${esc(pending)}</h1><div class="sub">Waiting for the host…</div>`;
+    return;
+  }
+  if (!mine) {
+    main.innerHTML = `${boardHtml(st)}<div class="pill wait">${esc(st.activeName || "Someone")}'s turn</div>
+      <div class="sub">Hang tight — you're up soon.</div>`;
+    return;
+  }
+
+  const called = new Set(st.called || []);
+  const grid = (allowVowels, allowConsonants) => `<div class="grid">${
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((L) => {
+      const vowel = "AEIOU".includes(L);
+      const gone = called.has(L);
+      const on = !gone && (vowel ? allowVowels : allowConsonants);
+      return `<button class="lt ${vowel ? "vowel" : ""} ${gone ? "gone" : ""}" data-l="${L}" ${on ? "" : "disabled"}>${L}</button>`;
+    }).join("")}</div>`;
+
+  if (st.phase === "consonant" || st.phase === "free" || st.phase === "vowel" || st.phase === "bonus-picking") {
+    const isVowelPhase = st.phase === "vowel";
+    const title = isVowelPhase ? "Pick your vowel"
+      : st.phase === "bonus-picking" ? "Three consonants and a vowel"
+        : st.phase === "free" ? "Free play — any letter"
+          : `Call a consonant${st.perLetter ? ` — $${st.perLetter} each` : ""}`;
+    main.innerHTML = `${boardHtml(st)}<div class="pill you">YOUR TURN</div><h1>${esc(title)}</h1>
+      ${grid(isVowelPhase || st.phase === "free", !isVowelPhase)}
+      <div class="err" id="err"></div>
+      <div class="acts"><button class="go ghost" id="solveBtn">💡 Solve the puzzle</button></div>`;
+    main.querySelectorAll(".lt").forEach((b) => b.addEventListener("click", () => send({ action: "letter", letter: b.dataset.l }, b.dataset.l)));
+    document.getElementById("solveBtn").addEventListener("click", () => solveScreen(st));
+    return;
+  }
+
+  if (st.phase === "solving") {
+    solveScreen(st, true);
+    return;
+  }
+
+  // idle: their turn to choose what to do
+  const canVowel = st.canBuyVowel;
+  main.innerHTML = `${boardHtml(st)}<div class="pill you">YOUR TURN</div><h1>What's it going to be?</h1>
+    <div class="acts"><button class="go alt" id="spinBtn">🎡 Spin</button></div>
+    <div class="acts">
+      <button class="go" id="vowelBtn" ${canVowel ? "" : "disabled"}>🅰 Buy a vowel${st.vowelCost ? ` ($${st.vowelCost})` : ""}</button>
+    </div>
+    <div class="acts"><button class="go ghost" id="solveBtn">💡 Solve</button></div>
+    ${canVowel ? "" : `<div class="sub">A vowel costs $${st.vowelCost} — win some cash first.</div>`}`;
+  document.getElementById("spinBtn").addEventListener("click", () => send({ action: "spin" }, "Spin!"));
+  document.getElementById("vowelBtn").addEventListener("click", () => send({ action: "vowel" }, "Buying a vowel"));
+  document.getElementById("solveBtn").addEventListener("click", () => solveScreen(st));
+}
+
+/** Toss-up: one big button, open to the whole room, first thumb wins. */
+function tossupScreen(st) {
+  const out = (st.lockedOut || []).includes(me.playerId);
+  const key = "tossup|" + st.seq + "|" + out + "|" + (st.called || []).join("") + "|" + pending;
+  if (key === view) return;
+  view = key;
+
+  if (out) {
+    main.innerHTML = `${boardHtml(st)}<div class="pill wait">YOU'RE OUT</div>
+      <h1>Locked out</h1><div class="sub">You had your guess — watch the rest come up.</div>`;
+    return;
+  }
+  if (pending) {
+    main.innerHTML = `${boardHtml(st)}<div class="pill you">BUZZED IN</div>
+      <h1>You're in!</h1><div class="sub">Say it out loud, or type it below.</div>
+      <div class="acts"><button class="go" id="solveBtn">💡 Type my answer</button></div>`;
+    document.getElementById("solveBtn").addEventListener("click", () => { pending = null; solveScreen(st); });
+    return;
+  }
+  main.innerHTML = `${boardHtml(st)}
+    <div class="pill you">TOSS-UP${st.roundValue ? ` — $${Number(st.roundValue).toLocaleString()}` : ""}</div>
+    <button class="go buzz" id="buzzBtn">BUZZ IN</button>
+    <div class="sub">First in gets one guess. Get it wrong and you're out of this one.</div>
+    <div class="err" id="err"></div>`;
+  document.getElementById("buzzBtn").addEventListener("click", () => send({ action: "buzz" }, "Buzzed in"));
+}
+
+/** Typing the whole answer. The console checks it, so a typo is still a wrong guess. */
+function solveScreen(st, auto) {
+  view = "solve" + (auto ? "-auto" : "");
+  main.innerHTML = `${boardHtml(st)}<div class="pill you">SOLVING</div>
+    <h1>Type the whole answer</h1>
+    <div class="sub">Spelling is checked for you — punctuation doesn't matter.</div>
+    <form id="f"><input id="ans" placeholder="YOUR ANSWER" autocomplete="off" autocorrect="off" maxlength="120">
+      <button class="go" type="submit">Lock it in</button>
+      ${auto ? "" : `<button class="go ghost" type="button" id="back">← Back</button>`}</form>
+    <div class="err" id="err"></div>`;
+  const inp = document.getElementById("ans");
+  inp.focus();
+  document.getElementById("f").onsubmit = (e) => {
+    e.preventDefault();
+    const text = inp.value.trim();
+    if (!text) { document.getElementById("err").textContent = "Type your answer first"; return; }
+    send({ action: "solve", text }, text.toUpperCase());
+  };
+  const back = document.getElementById("back");
+  if (back) back.addEventListener("click", () => { view = null; tick(); });
+}
+
+/** Send a pick, then hold the screen until the host has acted on it. */
+async function send(body, label) {
+  pending = label;
+  view = null;
+  const r = await api("/api/wheel", { code: CODE, playerId: me.playerId, ...body });
+  if (r && (r.error || r.notYourTurn || r.notAllowed || r.already || r.lockedOut)) {
+    pending = null;
+    view = null;
+    tick();
+    const err = document.getElementById("err");
+    const msg = r.error
+      || (r.lockedOut ? "You're out of this one"
+        : r.notYourTurn ? "Someone beat you to it"
+          : r.already ? "That letter's already gone" : "You can't pick that right now");
+    if (err) err.textContent = msg;
+    return;
+  }
+  navigator.vibrate && navigator.vibrate(50);
+  tick();
+}
+
+/* ------------------------------------------------------------ polling */
+async function tick() {
+  try {
+    const r = await fetch("/api/wheel?code=" + CODE).then((x) => x.json());
+    const st = r && r.state;
+    if (!st) {
+      hdr.style.display = "flex";
+      if (view !== "idle-room") {
+        view = "idle-room";
+        setHeader(null);
+        main.innerHTML = `<div class="logo">🎡</div><h1>Waiting for the host</h1>
+          <div class="sub">The wheel hasn't started yet. Keep this open.</div>`;
+      }
+      return;
+    }
+    // The host moving on is what clears a pending pick — that's the signal it landed.
+    if (lastSeq !== null && st.seq !== lastSeq) pending = null;
+    lastSeq = st.seq;
+    render(st);
+  } catch { /* offline: leave the screen as it is and try again */ }
+}
+function startPolling() {
+  if (poll) clearInterval(poll);
+  tick();
+  poll = setInterval(tick, 900);
+}
+
+/* --------------------------------------------------------------- boot */
+(async function () {
+  if (!CODE) return showEnterCode();
+  me = store();
+  if (me && me.playerId) {
+    const r = await api("/api/join", { code: CODE, name: me.name, playerId: me.playerId });
+    if (r.error) { localStorage.removeItem("buzz_p_" + CODE); return showEnterName(r.error); }
+    me = { playerId: r.playerId, name: r.name };
+    saveMe();
+    startPolling();
+  } else {
+    const test = await fetch("/api/state?code=" + CODE).then((x) => x.json()).catch(() => ({ error: "offline" }));
+    if (test.error === "Room not found") showEnterCode("That room code wasn't found.");
+    else showEnterName();
+  }
+})();
+</script>
+</body>
+</html>

@@ -86,6 +86,8 @@
     <div class="spacer"></div>
     <a class="btn ghost sm" href="boards.html">Boards</a>
     <a class="btn ghost sm" href="sessions.html">Sessions</a>
+    <a class="btn ghost sm" href="puzzles.html">Puzzles</a>
+    <a class="btn ghost sm" href="wheel-sessions.html">Wheel Sessions</a>
   </header>
 
   <main class="wrap">
@@ -93,12 +95,12 @@
       <div class="kicker rise"><span class="dot"></span> Live &amp; stage-ready</div>
       <h1 class="rise" style="animation-delay:.05s">Run the show.<br /><span class="grad">One studio, every game.</span></h1>
       <p class="sub rise" style="animation-delay:.12s">
-        Build boards, plan sessions and drive the room — buzzers, scores and big-screen display included.
-        Jeopardy today; the platform is built for whatever you run next.
+        Build boards and puzzles, plan sessions and drive the room — buzzers, scores and big-screen
+        display included. Jeopardy and Wheel of Fortune tonight; built for whatever you run next.
       </p>
       <div class="cta-row rise" style="animation-delay:.18s">
         <a class="btn primary" id="heroConsole" href="index.html?screen=control">▶ Open Jeopardy Console</a>
-        <a class="btn" href="boards.html">Manage Boards</a>
+        <a class="btn" id="heroWheel" href="wheel.html?screen=control">🎡 Open Wheel Console</a>
       </div>
     </section>
 
@@ -117,27 +119,40 @@
     import { GAMES } from "./platform/core/games.js";
     import { BoardRepo, SessionRepo } from "./platform/core/repos.js";
     import { ensureSeeded } from "./platform/core/seed.js";
+    import { PuzzleRepo, WheelSessionRepo } from "./platform/core/wheel.js";
+    import { ensureWheelSeeded } from "./platform/core/wheel-seed.js";
 
     const grid = document.getElementById("games");
+
+    /* Each game keeps its own content and running orders, so the home screen asks
+       the game which repositories to count and which session to resume. */
+    const SOURCES = {
+      jeopardy: {
+        sessions: () => SessionRepo.list().filter(s => (s.gameKey || "jeopardy") === "jeopardy"),
+        items: () => BoardRepo.list(),
+        noun: (n) => `${n} board${n === 1 ? "" : "s"}`,
+      },
+      wheel: {
+        sessions: () => WheelSessionRepo.list(),
+        items: () => PuzzleRepo.list(),
+        noun: (n) => `${n} puzzle${n === 1 ? "" : "s"}`,
+      },
+    };
 
     // Launch a game's console at its most-recent session (data-driven flow),
     // falling back to the game's plain console URL when it has no sessions yet.
     function consoleUrl(g) {
-      if (g.key !== "jeopardy") return g.console;
-      const mine = SessionRepo.list().filter(s => (s.gameKey || "jeopardy") === g.key)
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-      return mine.length ? `index.html?screen=control&session=${mine[0].id}` : g.console;
+      const src = SOURCES[g.key];
+      if (!src || !g.console) return g.console;
+      const mine = src.sessions().sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      return mine.length ? `${g.console}&session=${mine[0].id}` : g.console;
     }
 
     function render() {
-      const boardsByGame = {};
-      for (const b of BoardRepo.list()) boardsByGame[b.gameKey] = (boardsByGame[b.gameKey] || 0) + 1;
-      const sessionsByGame = {};
-      for (const s of SessionRepo.list()) sessionsByGame[s.gameKey] = (sessionsByGame[s.gameKey] || 0) + 1;
-
-      const jeopardyUrl = consoleUrl(GAMES.find(g => g.key === "jeopardy"));
       const heroBtn = document.getElementById("heroConsole");
-      if (heroBtn) heroBtn.href = jeopardyUrl;
+      if (heroBtn) heroBtn.href = consoleUrl(GAMES.find(g => g.key === "jeopardy"));
+      const heroWheel = document.getElementById("heroWheel");
+      if (heroWheel) heroWheel.href = consoleUrl(GAMES.find(g => g.key === "wheel"));
 
       document.getElementById("gamesCount").textContent =
         `${GAMES.filter(g => g.status === "available").length} available · ${GAMES.length} total`;
@@ -152,8 +167,9 @@
         el.style.setProperty("--g1", g.accent);
         el.style.setProperty("--g2", g.accent2);
 
-        const nBoards = boardsByGame[g.key] || 0;
-        const nSessions = sessionsByGame[g.key] || 0;
+        const src = SOURCES[g.key];
+        const nItems = src ? src.items().length : 0;
+        const nSessions = src ? src.sessions().length : 0;
 
         el.innerHTML = `
           ${available ? "" : `<span class="badge-soon">Coming soon</span>`}
@@ -163,7 +179,7 @@
           <div class="desc">${g.description}</div>
           <div class="game-foot">
             ${available
-              ? `<span class="stat">${nBoards} board${nBoards === 1 ? "" : "s"} · ${nSessions} session${nSessions === 1 ? "" : "s"}</span>
+              ? `<span class="stat">${src ? src.noun(nItems) : ""} · ${nSessions} session${nSessions === 1 ? "" : "s"}</span>
                  <span class="spacer"></span>
                  <span class="go">Open ▸</span>`
               : `<span class="stat">On the roadmap</span>`}
@@ -175,6 +191,9 @@
     render();
     BoardRepo.subscribe(render);
     SessionRepo.subscribe(render);
+    PuzzleRepo.subscribe(render);
+    WheelSessionRepo.subscribe(render);
+    ensureWheelSeeded();
 
     // Seed legacy boards on first run, then refresh counts.
     ensureSeeded().then(({ seeded, boards }) => {

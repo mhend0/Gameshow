@@ -15,6 +15,8 @@
  * @property {string} glyph       Emoji/short glyph for the card.
  * @property {"available"|"coming-soon"} status
  * @property {string} [console]   URL of the game's control console (when available).
+ * @property {{href:string,label:string}} [library]  Where this game's content is edited.
+ * @property {string} [sessionsPage]  Where this game's running orders are planned.
  */
 
 /** @type {GameDef[]} */
@@ -45,11 +47,16 @@ export const GAMES = [
     key: "wheel",
     name: "Wheel of Fortune",
     tagline: "Spin, guess, solve",
-    description: "Spin the wheel, buy vowels and solve the puzzle. On the roadmap.",
+    description:
+      "Type an answer and a category — the board lays itself out. Spin for cash, call letters, buy vowels and solve, with the wheel and the puzzle on the big screen.",
     accent: "#18c29c",
     accent2: "#3ad6b3",
     glyph: "🎡",
-    status: "coming-soon",
+    status: "available",
+    console: "wheel.html?screen=control",
+    /** Where this game's content lives, for the home screen's links. */
+    library: { href: "puzzles.html", label: "Puzzles" },
+    sessionsPage: "wheel-sessions.html",
   },
   {
     key: "the-chase",

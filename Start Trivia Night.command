@@ -8,9 +8,10 @@ PORT=8777
 # Start the server only if it isn't already running on this port.
 if ! curl -s "http://localhost:$PORT/index.html" >/dev/null 2>&1; then
   echo "Starting local server on port $PORT..."
-  # Prefer python3, fall back to python
+  # serve.py is http.server plus "don't cache anything", so an update never
+  # leaves the browser running a half-old copy of the app.
   if command -v python3 >/dev/null 2>&1; then
-    python3 -m http.server $PORT >/dev/null 2>&1 &
+    python3 serve.py $PORT >/dev/null 2>&1 &
   else
     python -m SimpleHTTPServer $PORT >/dev/null 2>&1 &
   fi
