@@ -210,23 +210,66 @@ export function createFeudBoard(opts = {}) {
   }
 
   /**
-   * A miss: throw the X's up big, shake the board, then settle back to the
-   * persistent count. `n` is the strike number this miss just made.
+   * A miss: throw one fresh X up big and shake the board. It stays put — the
+   * caller (the console) is expected to fly it off to the scorecard with
+   * `takeStrikeNodes` after a beat, rather than leaving it parked on the
+   * board. A safety timer clears it regardless, in case nobody does.
    */
-  function flashStrike(n) {
-    setStrikes(n);
-    strikes.classList.add("flash");
+  function flashStrike() {
+    strikes.innerHTML = "";
+    strikes.classList.remove("triple");
+    strikes.classList.add("show");
+    strikes.appendChild(el("span", { class: "fb-x", text: "✗" }));
     frame.classList.remove("nudge");
     void frame.offsetWidth;                     // restart the animation
     frame.classList.add("nudge");
-    later(() => strikes.classList.remove("flash"), 1100);
+    void strikes.offsetWidth;
+    strikes.querySelector(".fb-x").classList.add("pop");
+    later(() => { strikes.innerHTML = ""; strikes.classList.remove("show"); }, 6000);
   }
 
   /** Three X's, full screen, for the strike that loses the board. */
   function flashTripleStrike() {
-    flashStrike(3);
-    strikes.classList.add("triple");
-    later(() => strikes.classList.remove("triple"), 1600);
+    strikes.innerHTML = "";
+    strikes.classList.add("show", "triple");
+    for (let i = 0; i < 3; i++) strikes.appendChild(el("span", { class: "fb-x", text: "✗" }));
+    frame.classList.remove("nudge");
+    void frame.offsetWidth;                     // restart the animation
+    frame.classList.add("nudge");
+    void strikes.offsetWidth;
+    strikes.querySelectorAll(".fb-x").forEach((x) => x.classList.add("pop"));
+    later(() => { strikes.innerHTML = ""; strikes.classList.remove("show", "triple"); }, 6000);
+  }
+
+  /**
+   * Detach whatever X's are currently up, pinned as fixed-position elements
+   * exactly where they sit on screen right now, so a caller can ease them
+   * elsewhere (the scorecard) with no jump cut. Freezes their computed look
+   * first, since cqw sizing means nothing once they leave the board's
+   * container. Clears the board's own strike display immediately — the
+   * caller now owns the detached nodes and must remove them itself.
+   * Returns [] if nothing is showing.
+   */
+  function takeStrikeNodes() {
+    const nodes = Array.from(strikes.querySelectorAll(".fb-x"));
+    if (!nodes.length) return [];
+    const placed = nodes.map((x) => {
+      const r = x.getBoundingClientRect();
+      const cs = getComputedStyle(x);
+      const { fontSize, borderRadius, boxShadow, background, color, fontWeight } = cs;
+      document.body.appendChild(x);
+      Object.assign(x.style, {
+        position: "fixed", left: `${r.left}px`, top: `${r.top}px`,
+        width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "9999",
+        fontSize, borderRadius, boxShadow, background, color, fontWeight,
+        display: "grid", placeItems: "center", pointerEvents: "none",
+      });
+      x.classList.remove("pop");
+      return x;
+    });
+    strikes.innerHTML = "";
+    strikes.classList.remove("show", "triple");
+    return placed;
   }
 
   /* -------------------------------------------------------------- total */
@@ -253,7 +296,7 @@ export function createFeudBoard(opts = {}) {
   return {
     el: frame, grid,
     setSurvey, setQuestion, applyRevealed, reveal, revealAll, markSteal,
-    setStrikes, flashStrike, flashTripleStrike, setMultiplier, destroy,
+    setStrikes, flashStrike, flashTripleStrike, takeStrikeNodes, setMultiplier, destroy,
     get answers() { return answers; },
     get shown() { return new Set(shown); },
     get points() { return points(); },
@@ -367,10 +410,9 @@ function ensureStyles() {
     box-shadow:0 0 0 .5cqw #fff, 0 1.4cqw 3cqw rgba(0,0,0,.6);
     opacity:.96;
   }
-  .fb-strikes.flash .fb-x:last-child{ animation:fbStrike 1s var(--ease,ease-out); }
-  .fb-strikes.triple .fb-x{ animation:fbStrike 1s var(--ease,ease-out) both; }
-  .fb-strikes.triple .fb-x:nth-child(2){ animation-delay:.12s; }
-  .fb-strikes.triple .fb-x:nth-child(3){ animation-delay:.24s; }
+  .fb-x.pop{ animation:fbStrike 1s var(--ease,ease-out); }
+  .fb-strikes.triple .fb-x.pop:nth-child(2){ animation-delay:.12s; }
+  .fb-strikes.triple .fb-x.pop:nth-child(3){ animation-delay:.24s; }
   @keyframes fbStrike{
     0%{ transform:scale(2.6); opacity:0; }
     22%{ transform:scale(1.12); opacity:1; }
@@ -409,8 +451,7 @@ function ensureStyles() {
   @media (prefers-reduced-motion: reduce){
     .fb-flip{ transition-duration:.001ms; }
     .fb-slot.just .fb-back{ animation:none; }
-    .fb-strikes.flash .fb-x:last-child,
-    .fb-strikes.triple .fb-x{ animation:none; }
+    .fb-x.pop{ animation:none; }
     .fb.nudge .fb-frame{ animation:none; }
   }
   `;

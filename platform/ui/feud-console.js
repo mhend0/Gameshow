@@ -243,6 +243,12 @@ if (isControl) {
 
 let lastRoundKey = null;
 let lastStrikes = 0;
+// The little boxes on the scorecard lag the board's own strike count while an
+// X is mid-flight, so they only light up the instant its animation lands —
+// never before.
+let scorecardStrikes = 0;
+let scorecardOwner = null;
+let strikeFlightSeq = 0;
 let shownBannerId = null;
 let shownAwardId = null;
 let shownGuessId = null;
@@ -281,18 +287,32 @@ function renderBoard() {
     lastRoundKey = key;
     board.setSurvey(r || { question: "", answers: [] }, { revealed: false });
     lastStrikes = 0;
+    scorecardStrikes = 0;
+    scorecardOwner = null;
+    strikeFlightSeq++;
   }
   board.setMultiplier(multiplier());
   board.applyRevealed(state.revealed, { animate: true });
 
   // Strikes: only *new* ones get the animation, so a re-render never re-throws
-  // the X's at the room.
+  // the X's at the room. The X lands big on the board, holds for a beat, then
+  // flies off to the scorecard — see scheduleStrikeFlight.
   if (state.strikes > lastStrikes) {
-    if (state.strikes >= state.settings.strikes) board.flashTripleStrike();
-    else board.flashStrike(state.strikes);
+    const owner = strikesOwnerIndex();
+    if (state.strikes >= state.settings.strikes) {
+      board.flashTripleStrike();
+      scheduleStrikeFlight(owner, [0, 1, 2]);
+    } else {
+      board.flashStrike();
+      scheduleStrikeFlight(owner, [state.strikes - 1]);
+    }
     sfx.strike(state.strikes);
   } else if (state.strikes !== lastStrikes) {
+    // The host undoing a strike (or a round reset): sync instantly, no flight.
     board.setStrikes(state.strikes);
+    strikeFlightSeq++;
+    scorecardOwner = strikesOwnerIndex();
+    scorecardStrikes = state.strikes;
   }
   lastStrikes = state.strikes;
 
@@ -335,12 +355,28 @@ function turnLine() {
   }
 }
 
+/**
+ * Which family the board's current strikes belong to — during a steal that's
+ * whoever was holding the board, not whoever is highlighted to answer.
+ */
+function strikesOwnerIndex() {
+  const active = state.phase === "steal" ? (state.steal ? state.steal.team : null)
+    : (state.phase === "face-off-answer" || state.phase === "face-off-second")
+      ? (state.faceOff ? state.faceOff.answering : null)
+      : state.control;
+  return state.phase === "steal" ? state.control : active;
+}
+
 function renderTeams() {
   const box = $("teams");
   const active = state.phase === "steal" ? (state.steal ? state.steal.team : null)
     : (state.phase === "face-off-answer" || state.phase === "face-off-second")
       ? (state.faceOff ? state.faceOff.answering : null)
       : state.control;
+  const strikesOwner = strikesOwnerIndex();
+  // How many boxes are actually lit right now — lags state.strikes while an
+  // X is still flying toward them, so the box never beats its animation in.
+  const lit = scorecardOwner === strikesOwner ? scorecardStrikes : 0;
 
   if (box.children.length !== state.teams.length) box.innerHTML = "";
   state.teams.forEach((t, i) => {
@@ -351,19 +387,89 @@ function renderTeams() {
       box.appendChild(card);
     }
     const up = playerUp(i);
-    // Strikes belong to the family that earned them — which during a steal is
-    // the family holding the board, not the one highlighted to answer.
-    const strikesOwner = state.phase === "steal" ? state.control : active;
     const showStrikes = strikesOwner === i && (state.phase === "play" || state.phase === "steal");
     card.innerHTML = `
       <span class="nm">${escapeHtml(t.name)}</span>
       ${up ? `<span class="up">${escapeHtml(up.name)}</span>` : ""}
       <span class="xs">${[0, 1, 2].map((n) =>
-        `<i class="${showStrikes && n < state.strikes ? "on" : ""}">✗</i>`).join("")}</span>
+        `<i class="${showStrikes && n < lit ? "on" : ""}">✗</i>`).join("")}</span>
       <span class="sc">${fmtScore(t.total)}</span>
       <span class="gain" data-gain></span>`;
     card.classList.toggle("active", active === i);
   });
+}
+
+/** The i-th little strike box on a team's scorecard, or null if it's not there yet. */
+function teamStrikeBox(owner, index) {
+  const card = $("teams")?.children[owner];
+  return card ? card.querySelectorAll(".xs i")[index] || null : null;
+}
+
+/**
+ * A beat after a strike lands big on the board, detach its X (or all three,
+ * for the round-losing strike) and ease each one down onto its matching box
+ * on the scorecard. `indices` are the 0-based box positions the detached
+ * nodes represent, in DOM order.
+ */
+function scheduleStrikeFlight(owner, indices) {
+  const speed = Number(state.settings.animationSpeed) || 1;
+  const seq = strikeFlightSeq;
+  setTimeout(() => {
+    if (seq !== strikeFlightSeq) return;           // a reset happened mid-hold
+    const nodes = board.takeStrikeNodes();
+    nodes.forEach((node, i) => {
+      const boxEl = teamStrikeBox(owner, indices[i]);
+      flyStrikeNode(node, boxEl, () => {
+        if (seq !== strikeFlightSeq) return;        // a reset happened mid-flight
+        if (scorecardOwner !== owner) { scorecardOwner = owner; scorecardStrikes = 0; }
+        scorecardStrikes = Math.max(scorecardStrikes, indices[i] + 1);
+        renderTeams();
+      });
+    });
+  }, Math.round(1700 / speed));
+}
+
+/**
+ * Ease one detached strike X from wherever it's pinned to a scorecard box,
+ * shrinking and fading as it goes. A touch of acceleration (not a linear
+ * glide) makes the landing feel thrown rather than dragged. `onLand` fires
+ * exactly when the motion finishes, so the box it's aimed at can light up
+ * the instant the X is gone — never a beat before.
+ */
+function flyStrikeNode(node, boxEl, onLand) {
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (!boxEl || reduced) { node.remove(); onLand(); return; }
+
+  const from = node.getBoundingClientRect();
+  const to = boxEl.getBoundingClientRect();
+  const speed = Number(state.settings.animationSpeed) || 1;
+  const ms = Math.round(640 / speed);
+  const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+  const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+  const scale = Math.max(0.12, (to.width || 15) / (from.width || 1));
+
+  let landed = false;
+  const land = () => {
+    if (landed) return;
+    landed = true;
+    node.remove();
+    onLand();
+  };
+
+  // Two rAFs: the first lets the browser commit the node's "at rest" pinned
+  // position, the second then changes the transform so the transition has
+  // something to animate from rather than jumping straight to the end.
+  requestAnimationFrame(() => {
+    node.style.transition =
+      `transform ${ms}ms cubic-bezier(.5,.02,.78,.32), ` +
+      `opacity ${ms}ms cubic-bezier(.5,.02,.78,.32) ${Math.round(ms * 0.55)}ms`;
+    requestAnimationFrame(() => {
+      node.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+      node.style.opacity = "0";
+    });
+  });
+  node.addEventListener("transitionend", (e) => { if (e.propertyName === "transform") land(); });
+  setTimeout(land, ms + 150);                       // safety net
 }
 
 /**

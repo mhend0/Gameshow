@@ -274,18 +274,22 @@ export const sfx = {
   },
 
   /**
-   * A strike. Harsh, buzzing and unpleasant on purpose — and it drops a tone
-   * with each one, so the third strike sounds like the end of the round
-   * without anybody having to say so.
+   * A strike. Harsh, buzzing and unpleasant on purpose — two short buzzes
+   * back to back, like a game-show "wrong" horn — and it drops a tone with
+   * each strike, so the third sounds like the end of the round without
+   * anybody having to say so.
    */
   strike(n = 1) {
     if (muted) return;
     const base = [220, 185, 150][Math.min(2, Math.max(0, n - 1))];
-    const dur = n >= 3 ? 1.15 : 0.62;
-    tone({ freq: base, type: "square", dur, gain: 0.2 });
-    tone({ freq: base * 1.5, type: "sawtooth", dur, gain: 0.11 });
-    tone({ freq: base / 2, type: "square", dur, gain: 0.13 });
-    hiss({ dur: dur * 0.5, freq: 420, q: 1.2, gain: 0.09, attack: 0.004 });
+    const buzzDur = n >= 3 ? 0.52 : 0.3;
+    const gap = buzzDur + 0.09;
+    [0, gap].forEach((t) => {
+      tone({ freq: base, type: "square", dur: buzzDur, gain: 0.2, t, attack: 0.002 });
+      tone({ freq: base * 1.5, type: "sawtooth", dur: buzzDur, gain: 0.11, t, attack: 0.002 });
+      tone({ freq: base / 2, type: "square", dur: buzzDur, gain: 0.13, t, attack: 0.002 });
+      hiss({ t, dur: buzzDur * 0.5, freq: 420, q: 1.2, gain: 0.09, attack: 0.004 });
+    });
   },
 
   /** Buzzers arming for a face-off: two players, one note each, then go. */
