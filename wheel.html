@@ -4,6 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Wheel of Fortune · Console</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="platform/ui/pwa.js" defer></script>
 <link rel="stylesheet" href="platform/ui/theme.css" />
 <style>
 /* =====================================================================
@@ -41,8 +51,13 @@ body[data-screen="display"] .display-only{ display:var(--do-disp,flex); }
 body[data-screen="control"] #stage{ grid-template-columns:minmax(0,1fr) 340px; }
 body[data-screen="display"] #stage{ grid-template-columns:1fr; padding:clamp(12px,2vw,30px); gap:clamp(10px,1.8vh,26px); }
 
+/* left column: the board/wheel viewport, plus (control only) the answer strip
+   stacked underneath it — a plain flex column so it costs the viewport some
+   of its own height, never the players row below #stage. */
+#boardCol{ display:flex; flex-direction:column; gap:10px; min-height:0; min-width:0; }
+
 /* the board and the wheel share one box: the wheel takes over while it spins */
-#viewport{ position:relative; display:grid; place-items:center; min-height:0; min-width:0; }
+#viewport{ position:relative; display:grid; place-items:center; min-height:0; min-width:0; flex:1; }
 .layer{ position:absolute; inset:0; display:grid; place-items:center;
   transition:opacity .45s var(--ease), transform .45s var(--ease); }
 .layer.hide{ opacity:0; pointer-events:none; }
@@ -52,8 +67,8 @@ body[data-screen="display"] #stage{ grid-template-columns:1fr; padding:clamp(12p
 #wheelLayer.hide{ transform:scale(.86); }
 #boardHolder{ width:100%; max-width:min(100%, 130vh); }
 /* The host's board is a reference, not the show — keep it compact so the
-   controls it sits beside stay above the fold. */
-body[data-screen="control"] #boardHolder{ max-width:min(100%, 660px); }
+   controls it sits beside, and the answer strip below it, stay above the fold. */
+body[data-screen="control"] #boardHolder{ max-width:min(100%, 540px); }
 /* Fills the stage; the wheel sizes itself square to whichever side is tighter. */
 #wheelHolder{ width:100%; height:100%; display:grid; place-items:center; }
 
@@ -99,8 +114,9 @@ body[data-screen="control"] #boardHolder{ max-width:min(100%, 660px); }
 .modes{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
 .modes .btn{ justify-content:center; }
 .modes .btn.on{ background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#04150f; border-color:transparent; font-weight:800; }
+.btn.on{ background:linear-gradient(135deg,var(--gold),var(--gold-bright)); color:#241a05; border-color:transparent; font-weight:800; }
 
-/* join QR, shown on both screens */
+/* join QR, shown on TV only */
 #qrOverlay{ position:fixed; inset:0; z-index:90; display:none; place-items:center; padding:24px;
   background:color-mix(in srgb,#000 72%,transparent); backdrop-filter:blur(10px); }
 #qrOverlay.show{ display:grid; }
@@ -110,6 +126,34 @@ body[data-screen="control"] #boardHolder{ max-width:min(100%, 660px); }
 #qrOverlay .qr-img{ background:#fff; padding:12px; border-radius:14px; display:inline-block; }
 #qrOverlay .qr-code{ font-size:clamp(28px,4vw,58px); font-weight:900; letter-spacing:.16em; color:var(--gold-bright); margin-top:12px; }
 #qrOverlay .qr-url{ color:var(--text-1); font-size:clamp(13px,1.3vw,19px); margin:6px 0 0; }
+
+/* Tap-anywhere prompt to resume full screen after this TV window gets reused
+   for a different game — cross-document navigation always drops the browser
+   out of fullscreen, and JS can only re-request it from a real user gesture. */
+#fsResume{ position:fixed; inset:0; z-index:400; display:none; align-items:flex-end; justify-content:center; padding-bottom:6vh; cursor:pointer; }
+#fsResume.show{ display:flex; }
+#fsResume .pill{ background:color-mix(in srgb,#000 60%,transparent); border:2px solid var(--gold); border-radius:999px;
+  color:var(--gold-bright); font-size:clamp(16px,2.2vw,24px); font-weight:700; padding:16px 32px;
+  box-shadow:var(--shadow-3); animation:fsPulse 1.8s ease-in-out infinite; }
+@keyframes fsPulse{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.04) } }
+
+/* TV: title screen, shown until the host hits Begin Game. Sits below #fsResume
+   (z-index 400) so the tap-to-fullscreen prompt still reaches through it. */
+#titleScreen{ position:fixed; inset:0; z-index:350; display:none; place-items:center; text-align:center; padding:24px;
+  background:radial-gradient(1200px 800px at 50% 20%,color-mix(in srgb,var(--accent) 22%,#05070d),#05070d 70%); }
+#titleScreen.show{ display:grid; }
+#titleScreen .glyph{ font-size:clamp(60px,10vw,140px); animation:titleFloat 3.2s ease-in-out infinite; }
+#titleScreen h1{ font-size:clamp(32px,7vw,88px); font-weight:900; letter-spacing:.02em; margin:6px 0 4px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2)); -webkit-background-clip:text; background-clip:text; color:transparent;
+  animation:titleIn .8s var(--ease) both; }
+#titleScreen .tagline{ font-size:clamp(16px,2.2vw,26px); color:var(--text-1); margin:0 0 28px; animation:titleIn .8s var(--ease) .1s both; }
+#titleScreen .waiting{ font-size:clamp(14px,1.6vw,19px); color:var(--text-2); letter-spacing:.08em; text-transform:uppercase;
+  font-weight:700; animation:titlePulse 1.8s ease-in-out infinite; }
+#titleScreen .qr-wrap{ margin-top:30px; display:none; flex-direction:column; align-items:center; gap:10px; }
+#titleScreen .qr-wrap .box{ background:#fff; padding:10px; border-radius:14px; box-shadow:var(--shadow-3); }
+@keyframes titleFloat{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-14px) } }
+@keyframes titleIn{ from{ opacity:0; transform:translateY(18px) } to{ opacity:1; transform:translateY(0) } }
+@keyframes titlePulse{ 0%,100%{ opacity:.55 } 50%{ opacity:1 } }
 
 /* host-only answer strip */
 #hostAnswer{ font-size:13px; line-height:1.35; }
@@ -121,6 +165,20 @@ body[data-screen="control"] #boardHolder{ max-width:min(100%, 660px); }
 body[data-screen="control"] #players{ grid-auto-flow:column; grid-auto-columns:1fr; padding:0 14px 12px; }
 body[data-screen="display"] #players{ grid-auto-flow:column; grid-auto-columns:1fr;
   padding:0 clamp(12px,2vw,30px) clamp(12px,2vh,26px); gap:clamp(10px,1.4vw,20px); }
+
+/* TV wheel size: scale the wheel up from its top edge, so it grows mostly
+   downward and stays the same shape/position at top — a transform, not a
+   resize, so it never depends on the canvas's own ResizeObserver (which sizes
+   the wheel once per real box change; see wheel-view.js) catching up. Big
+   enough, and its own bottom naturally lands behind the players row, which
+   gets a raised z-index and a solid backing so it reads as tucked in behind
+   the podium like the real show. */
+body[data-screen="display"] #wheelHolder{ --wheel-scale:1; transform:scale(var(--wheel-scale)); transform-origin:top center; }
+body[data-screen="display"][data-wheel-size="three-quarter"] #wheelHolder{ --wheel-scale:1.3; }
+body[data-screen="display"][data-wheel-size="half"] #wheelHolder{ --wheel-scale:1.7; }
+body[data-screen="display"] #players{ position:relative; z-index:3; }
+body[data-screen="display"][data-wheel-size="three-quarter"] #players,
+body[data-screen="display"][data-wheel-size="half"] #players{ background:var(--bg-0); }
 
 .pl{ position:relative; border-radius:var(--r-md); padding:10px 12px; overflow:hidden;
   background:linear-gradient(180deg,var(--bg-2),var(--bg-1)); border:1px solid var(--line-soft);
@@ -249,6 +307,7 @@ body[data-screen="control"] #clock span{ font-size:clamp(26px,3vw,44px); }
     <button class="btn sm" id="resetRoundBtn" title="Restart this round">↺</button>
     <button class="btn sm" id="overrideBtn" title="Manual overrides">⚙ Overrides</button>
     <div class="spacer"></div>
+    <button class="btn sm primary ready" id="beginGameBtn" title="Let the room off the title screen">▶ Begin Game</button>
     <button class="btn sm" id="soundBtn" title="Sound on this screen">🔇</button>
     <button class="btn sm" id="openTvBtn">🖥 TV Display</button>
     <button class="btn sm" id="setupBtn">⚙ Setup</button>
@@ -263,9 +322,16 @@ body[data-screen="control"] #clock span{ font-size:clamp(26px,3vw,44px); }
 
   <!-- ===================== STAGE (both screens) ===================== -->
   <div id="stage">
-    <div id="viewport">
-      <div class="layer" id="boardLayer"><div id="boardHolder"></div></div>
-      <div class="layer hide" id="wheelLayer"><div id="wheelHolder"></div></div>
+    <div id="boardCol">
+      <div id="viewport">
+        <div class="layer" id="boardLayer"><div id="boardHolder"></div></div>
+        <div class="layer hide" id="wheelLayer"><div id="wheelHolder"></div></div>
+      </div>
+
+      <div class="panel control-only" id="hostAnswer" style="--co-disp:block">
+        <div class="c" id="hostCat">—</div>
+        <div class="a" id="hostAns">—</div>
+      </div>
     </div>
 
     <!-- ===================== CONTROL side panel ===================== -->
@@ -315,11 +381,6 @@ body[data-screen="control"] #clock span{ font-size:clamp(26px,3vw,44px); }
         <div id="letters"></div>
       </div>
 
-      <div class="panel" id="hostAnswer">
-        <div class="c" id="hostCat">—</div>
-        <div class="a" id="hostAns">—</div>
-      </div>
-
       <div class="panel" id="phonePanel">
         <h4>📱 Phones</h4>
         <div class="modes">
@@ -357,6 +418,23 @@ body[data-screen="control"] #clock span{ font-size:clamp(26px,3vw,44px); }
       <p class="qr-url" id="qrUrl"></p>
     </div>
   </div>
+
+  <!-- TV: title screen, shown until the host hits Begin Game -->
+  <div id="titleScreen">
+    <div>
+      <div class="glyph">🎡</div>
+      <h1>WHEEL OF FORTUNE</h1>
+      <p class="tagline">Spin, guess, solve</p>
+      <p class="waiting">Waiting for the host to start…</p>
+      <div class="qr-wrap" id="titleQrWrap">
+        <div class="box" id="titleQrBig"></div>
+        <p class="tiny">Scan to join on your phone</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TV: tap-anywhere prompt to resume full screen -->
+  <div id="fsResume"><div class="pill">Tap to enter full screen</div></div>
 
   <!-- Bonus-round clock: the whole room watches this, so it sits over the board -->
   <div id="clock"><div class="ring"><span id="clockNum">10</span></div></div>
@@ -430,6 +508,10 @@ function defaultState() {
     podium: false,
     // phones
     roomCode: "", hostToken: "", phoneMode: "verbal", qrOverlay: false,
+    // TV wheel size: full | three-quarter | half — how much of it tucks behind the players row.
+    wheelSize: "full",
+    // TV opens on a title screen until the host hits Begin Game.
+    started: false,
   };
 }
 let state = loadState();
@@ -442,7 +524,12 @@ let bonusTimer = null;
 function loadState() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (s && Array.isArray(s.players)) return Object.assign(defaultState(), s);
+    if (s && Array.isArray(s.players)) {
+      // A session saved before the title screen existed is already under way —
+      // don't ambush it with one on its next load.
+      if (typeof s.started === "undefined") s.started = true;
+      return Object.assign(defaultState(), s);
+    }
   } catch { /* corrupt or absent */ }
   return defaultState();
 }
@@ -560,7 +647,7 @@ function render() {
   renderBoard();
   renderView();
   renderPlayers();
-  if (SCREEN === "display") renderTvHead();
+  if (SCREEN === "display") { renderTvHead(); document.body.dataset.wheelSize = state.wheelSize || "full"; renderTitleScreen(); }
   renderBanner();
   renderCelebration();
   renderPodium();
@@ -568,6 +655,24 @@ function render() {
   renderQrOverlay();
   if (SCREEN === "control") { renderControl(); renderPhonePanel(); }
   runSpinIfNew();
+}
+
+/** TV: the title screen, up until the host hits Begin Game. */
+function renderTitleScreen() {
+  const el = document.getElementById("titleScreen");
+  if (!el) return;
+  const show = !state.started;
+  el.classList.toggle("show", show);
+  if (!show) return;
+  const wrap = document.getElementById("titleQrWrap");
+  if (!state.roomCode) { wrap.style.display = "none"; return; }
+  wrap.style.display = "flex";
+  const box = document.getElementById("titleQrBig");
+  if (box.dataset.code === state.roomCode) return;
+  box.dataset.code = state.roomCode;
+  box.innerHTML = "";
+  try { box.appendChild(window.QR.canvas(joinURL(), 180, { margin: 2 })); }
+  catch { box.textContent = joinURL(); }
 }
 
 function renderBoard() {
@@ -794,6 +899,8 @@ function renderPodium() {
 
 /* ------------------------------------------------------ control chrome */
 function renderControl() {
+  const beginBtn = document.getElementById("beginGameBtn");
+  if (beginBtn) beginBtn.style.display = state.started ? "none" : "";
   const r = round();
   const kind = roundKind();
   const kindDef = getRoundKind(kind);
@@ -1434,6 +1541,9 @@ function showSetup() {
     <h2>TV display</h2>
     <div><button class="btn" id="openTv2">🖥 Open / focus the TV window</button></div>
     <p class="tiny" style="margin-top:6px">Drag that window onto your TV and press ⛶. It shows only the board, the wheel and the scores.</p>
+    <h2>Wheel size (TV)</h2>
+    <div id="wheelSizeRow" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <p class="tiny" style="margin-top:6px">How much of the wheel tucks in behind the players' row on the TV screen.</p>
     <h2>Danger zone</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn danger" id="resetScoresBtn">Reset all scores</button>
@@ -1478,6 +1588,23 @@ function showSetup() {
     pushState(); drawPlayers();
   });
   document.getElementById("openTv2").addEventListener("click", openTv);
+  const wheelSizeRow = document.getElementById("wheelSizeRow");
+  const WHEEL_SIZES = [
+    { key: "full", label: "Full circle" },
+    { key: "three-quarter", label: "Show ¾" },
+    { key: "half", label: "Half circle" },
+  ];
+  const drawWheelSizes = () => {
+    wheelSizeRow.innerHTML = "";
+    WHEEL_SIZES.forEach((s) => {
+      const b = document.createElement("button");
+      b.className = `btn sm ${(state.wheelSize || "full") === s.key ? "on" : ""}`;
+      b.textContent = s.label;
+      b.addEventListener("click", () => { state.wheelSize = s.key; pushState(); drawWheelSizes(); });
+      wheelSizeRow.appendChild(b);
+    });
+  };
+  drawWheelSizes();
   document.getElementById("resetScoresBtn").addEventListener("click", () => {
     if (!confirm("Reset every player's total to $0?")) return;
     state.players.forEach((p) => { p.total = 0; p.roundMoney = 0; });
@@ -1781,11 +1908,13 @@ function renderPhonePanel() {
   }
 }
 
-/** The join QR, big, on both screens. */
+/** The join QR, big — TV only. */
 function renderQrOverlay() {
   const o = document.getElementById("qrOverlay");
   if (!o) return;
-  const show = state.qrOverlay && state.roomCode;
+  const btn = document.getElementById("showQrBtn");
+  if (btn) btn.classList.toggle("on", !!state.qrOverlay);
+  const show = state.qrOverlay && state.roomCode && SCREEN === "display";
   o.classList.toggle("show", !!show);
   if (!show) return;
   document.getElementById("qrCode").textContent = state.roomCode;
@@ -1803,9 +1932,22 @@ let tvWin = null;
 function openTv() {
   const q = new URLSearchParams(location.search);
   q.set("screen", "display");
-  tvWin = window.open(`wheel.html?${q}`, "wheelTV");
+  // A single shared window name across every game's console, so opening the TV
+  // for a different game reuses/replaces whatever is already fullscreen there
+  // instead of piling up a new tab per game.
+  tvWin = window.open(`wheel.html?${q}`, "gameShowTV");
   if (tvWin) { tvWin.focus(); setTimeout(pushState, 400); }
   else toast("Allow pop-ups for this page, then retry");
+}
+
+/** TV: resume full screen after this window gets reused for another game. */
+function initFsResume() {
+  const el = document.getElementById("fsResume");
+  if (!el) return;
+  const check = () => el.classList.toggle("show", !document.fullscreenElement);
+  el.addEventListener("click", () => { document.documentElement.requestFullscreen().catch(() => {}); });
+  document.addEventListener("fullscreenchange", check);
+  check();
 }
 
 let toastT = null;
@@ -1824,6 +1966,7 @@ if (SCREEN === "control") {
     if (confirm("Back to the Game Show Studio home screen?\n\nYour scores and progress are saved.")) location.href = "home.html";
   });
   on("openTvBtn", openTv);
+  on("beginGameBtn", () => { state.started = true; pushState(); });
   on("setupBtn", showSetup);
   on("overrideBtn", showOverrides);
   on("fsBtn", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()));
@@ -1924,6 +2067,7 @@ if (SCREEN === "control") {
   startPhoneSync();
 } else {
   bc.postMessage({ type: "ping" });
+  initFsResume();
   render();
   // Safety net: if a broadcast is ever missed, the TV notices the stored state
   // has moved on and catches up. Comparing the raw string keeps this cheap and

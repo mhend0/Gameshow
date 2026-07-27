@@ -68,6 +68,8 @@ function defaultState() {
 
     settings: loadFeudSettings(),
     roomCode: "", hostToken: "", qrOverlay: false,
+    // TV opens on a title screen until the host hits Begin Game.
+    started: false,
   };
 }
 
@@ -82,6 +84,9 @@ function loadState() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY));
     if (s && Array.isArray(s.teams) && s.teams.length === 2) {
+      // A session saved before the title screen existed is already under way —
+      // don't ambush it with one on its next load.
+      if (typeof s.started === "undefined") s.started = true;
       const merged = Object.assign(defaultState(), s);
       merged.settings = { ...loadFeudSettings(), ...(s.settings || {}) };
       return merged;
@@ -260,7 +265,7 @@ function render() {
   }
   const steps = [
     renderBoard, renderTvHead, renderTeams, renderSaid, renderFaceOff,
-    renderBanner, renderAward, renderFastMoney, renderPodium, renderQrOverlay,
+    renderBanner, renderAward, renderFastMoney, renderPodium, renderQrOverlay, renderTitleScreen,
   ];
   if (isControl) steps.push(renderControl, renderPhonePanel);
   for (const step of steps) {
@@ -1156,6 +1161,8 @@ function nextUpCopy() {
 }
 
 function renderControl() {
+  const beginBtn = $("beginGameBtn");
+  if (beginBtn) beginBtn.style.display = state.started ? "none" : "";
   const copy = nextUpCopy();
   $("nextUpWho").textContent = copy.who;
   $("nextUpWhat").textContent = copy.what;
@@ -1468,9 +1475,22 @@ let tvWin = null;
 function openTv() {
   const q = new URLSearchParams(location.search);
   q.set("screen", "display");
-  tvWin = window.open(`feud.html?${q}`, "feudTV");
+  // A single shared window name across every game's console, so opening the TV
+  // for a different game reuses/replaces whatever is already fullscreen there
+  // instead of piling up a new tab per game.
+  tvWin = window.open(`feud.html?${q}`, "gameShowTV");
   if (tvWin) { tvWin.focus(); setTimeout(pushState, 400); }
   else toast("Allow pop-ups for this page, then retry");
+}
+
+/** TV: resume full screen after this window gets reused for another game. */
+function initFsResume() {
+  const el = document.getElementById("fsResume");
+  if (!el) return;
+  const check = () => el.classList.toggle("show", !document.fullscreenElement);
+  el.addEventListener("click", () => { document.documentElement.requestFullscreen().catch(() => {}); });
+  document.addEventListener("fullscreenchange", check);
+  check();
 }
 
 let toastT = null;
@@ -2051,11 +2071,13 @@ function renderPhonePanel() {
   }
 }
 
-/** The join QR, big, on both screens. */
+/** The join QR, big — TV only. */
 function renderQrOverlay() {
   const o = $("qrOverlay");
   if (!o) return;
-  const show = state.qrOverlay && state.roomCode;
+  const btn = $("showQrBtn");
+  if (btn) btn.classList.toggle("on", !!state.qrOverlay);
+  const show = state.qrOverlay && state.roomCode && SCREEN === "display";
   o.classList.toggle("show", !!show);
   if (!show) return;
   $("qrCode").textContent = state.roomCode;
@@ -2065,6 +2087,24 @@ function renderQrOverlay() {
   box.dataset.code = state.roomCode;
   box.innerHTML = "";
   try { box.appendChild(window.QR.canvas(joinURL(), SCREEN === "display" ? 320 : 220, { margin: 2 })); }
+  catch { box.textContent = joinURL(); }
+}
+
+/** TV: the title screen, up until the host hits Begin Game. */
+function renderTitleScreen() {
+  const el = $("titleScreen");
+  if (!el) return;
+  const show = SCREEN === "display" && !state.started;
+  el.classList.toggle("show", show);
+  if (!show) return;
+  const wrap = $("titleQrWrap");
+  if (!state.roomCode) { wrap.style.display = "none"; return; }
+  wrap.style.display = "flex";
+  const box = $("titleQrBig");
+  if (box.dataset.code === state.roomCode) return;
+  box.dataset.code = state.roomCode;
+  box.innerHTML = "";
+  try { box.appendChild(window.QR.canvas(joinURL(), 180, { margin: 2 })); }
   catch { box.textContent = joinURL(); }
 }
 
@@ -2094,6 +2134,7 @@ if (isControl) {
     if (confirm("Back to the Game Show Studio home screen?\n\nYour scores and progress are saved.")) location.href = "home.html";
   });
   on("openTvBtn", openTv);
+  on("beginGameBtn", () => { state.started = true; pushState(); });
   on("setupBtn", showSetup);
   on("overrideBtn", showOverrides);
   on("fsBtn", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()));
@@ -2165,6 +2206,7 @@ if (isControl) {
 } else {
   // The TV announces itself so control can catch it up straight away.
   bc.postMessage({ type: "ping" });
+  initFsResume();
 }
 
 // Only control announces itself: "hello" is how two *control* windows find each

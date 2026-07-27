@@ -14,7 +14,7 @@ import { el } from "./ui.js";
 import { BOARD_ROWS, BOARD_COLS, ROW_SPANS, layoutPuzzle, isLetter } from "../core/wheel.js";
 
 /** ms between consecutive tiles of the same letter turning — the show's cadence. */
-const STAGGER = 150;
+const STAGGER = 1000;
 /** ms for one tile's flip. */
 const FLIP_MS = 420;
 

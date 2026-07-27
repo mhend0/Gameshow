@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trivia Night — Jeopardy Console</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="platform/ui/pwa.js" defer></script>
 <style>
   :root{
     --blue:#060ce9; --blue-deep:#070b6b; --gold:#d69f4c; --gold-bright:#ffcc00;
@@ -37,6 +47,10 @@
   .btn.tv{background:#123a1e;border-color:#2fbf5b;}
   .btn.warn{background:#3a1414;border-color:#7a2c2c;}
   .btn.sm{padding:5px 9px;font-size:12px;}
+  .btn.on{background:linear-gradient(135deg,var(--gold),var(--gold-bright));color:#241a05;border-color:transparent;font-weight:800;}
+  .btn.on:hover{background:linear-gradient(135deg,var(--gold),var(--gold-bright));filter:brightness(1.06);}
+  .btn.ready{animation:btnReady 1.6s ease-in-out infinite;}
+  @keyframes btnReady{0%,100%{box-shadow:0 0 0 0 rgba(6,12,233,.6)}50%{box-shadow:0 0 0 7px rgba(6,12,233,0)}}
 
   /* ---------- stage ---------- */
   #stage{flex:1;display:flex;min-height:0;}
@@ -208,6 +222,32 @@
   #qrOverlay .qr-steps b{color:var(--gold-bright);}
   #qrOverlay #qrCloseBtn{display:block;margin:24px auto 0;font-size:16px;padding:12px 26px;}
   body[data-screen="display"] #qrOverlay #qrCloseBtn{display:none;}   /* TV: operator closes it from control */
+  /* Tap-anywhere prompt to resume full screen after this TV window gets reused
+     for a different game — cross-document navigation always drops the browser
+     out of fullscreen, and JS can only re-request it from a real user gesture. */
+  #fsResume{position:fixed;inset:0;z-index:400;display:none;align-items:flex-end;justify-content:center;padding-bottom:6vh;cursor:pointer;}
+  #fsResume.show{display:flex;}
+  #fsResume .pill{background:rgba(6,9,40,.82);border:2px solid var(--gold);border-radius:999px;color:var(--gold-bright);
+    font-size:clamp(16px,2.2vw,24px);font-weight:700;padding:16px 32px;box-shadow:0 12px 40px rgba(0,0,0,.5);
+    animation:fsPulse 1.8s ease-in-out infinite;}
+  @keyframes fsPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+  /* TV: title screen, shown until the host hits Begin Game. Sits below #fsResume
+     (z-index 400) so the tap-to-fullscreen prompt still reaches through it. */
+  #titleScreen{position:fixed;inset:0;z-index:350;display:none;place-items:center;text-align:center;padding:24px;
+    background:radial-gradient(1200px 800px at 50% 20%,#151d5c,#04061a 70%);}
+  #titleScreen.show{display:grid;}
+  #titleScreen .glyph{font-size:clamp(60px,10vw,140px);animation:titleFloat 3.2s ease-in-out infinite;}
+  #titleScreen h1{font-size:clamp(32px,7vw,88px);font-weight:900;letter-spacing:.02em;margin:6px 0 4px;
+    background:linear-gradient(135deg,#3b6fff,#7a5cff);-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:titleIn .8s ease both;}
+  #titleScreen .tagline{font-size:clamp(16px,2.2vw,26px);color:#c7ccf0;margin:0 0 28px;animation:titleIn .8s ease .1s both;}
+  #titleScreen .waiting{font-size:clamp(14px,1.6vw,19px);color:#8a90c0;letter-spacing:.08em;text-transform:uppercase;
+    font-weight:700;animation:titlePulse 1.8s ease-in-out infinite;}
+  #titleScreen .qr-wrap{margin-top:30px;display:none;flex-direction:column;align-items:center;gap:10px;}
+  #titleScreen .qr-wrap .box{background:#fff;padding:10px;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);}
+  @keyframes titleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+  @keyframes titleIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes titlePulse{0%,100%{opacity:.55}50%{opacity:1}}
   /* ---------- TV final podium ----------
      The host's window gets the final overlay; the room deserves it too. Bars
      rise 3rd → 2nd → 1st so the winner lands last. */
@@ -266,6 +306,7 @@
     <div id="boardTag">Board 1 of 2</div>
     <div class="award-wrap"><label>Award</label><input id="awardInput" type="number" step="10" value="100"></div>
     <div class="spacer"></div>
+    <button class="btn primary ready" id="beginGameBtn" title="Let the room off the title screen">▶ Begin Game</button>
     <button class="btn tv" id="openTvBtn">🖥 Open TV Display</button>
     <button class="btn" id="qrBtn">📱 Join QR</button>
     <button class="btn" id="editBtn">✎ Teams</button>
@@ -384,7 +425,7 @@
 
   <script src="platform/ui/qr.js"></script>
 
-  <!-- Join-QR overlay (both screens; purely visual, doesn't touch the game) -->
+  <!-- Join-QR overlay (TV only; purely visual, doesn't touch the game) -->
   <div id="qrOverlay">
     <div class="qr-card">
       <h1>📱 Join the buzzers</h1>
@@ -399,6 +440,23 @@
       <button class="btn" id="qrCloseBtn">✕ Close</button>
     </div>
   </div>
+
+  <!-- ===== TV: title screen, shown until the host hits Begin Game ===== -->
+  <div id="titleScreen" class="display-only">
+    <div>
+      <div class="glyph">🟦</div>
+      <h1>TRIVIA NIGHT</h1>
+      <p class="tagline">Categories, clues &amp; buzzers</p>
+      <p class="waiting">Waiting for the host to start…</p>
+      <div class="qr-wrap" id="titleQrWrap">
+        <div class="box" id="titleQrBig"></div>
+        <p class="tiny">Scan to join on your phone</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TV: tap-anywhere prompt to resume full screen ===== -->
+  <div id="fsResume" class="display-only"><div class="pill">Tap to enter full screen</div></div>
 
   <!-- ===== TV: final podium (mirrors the control window's final overlay) ===== -->
   <div id="tvPodium" class="display-only" style="display:none">
@@ -493,12 +551,19 @@ function defaultState(){
     buzzerCode:"", hostToken:"", buzzSynced:false,
     buzzedName:"", buzzMode:"buzz", buzzOrder:[], qrOverlay:false,
     completedPrompted:[false,false],
-    boardView:{cellId:null,revealed:false,inerts:[]}
+    boardView:{cellId:null,revealed:false,inerts:[]},
+    // TV opens on a title screen until the host hits Begin Game.
+    started:false
   };
 }
 function loadState(){
   try{ const s=JSON.parse(localStorage.getItem(STORE_KEY));
-    if(s&&Array.isArray(s.teams)) return Object.assign(defaultState(),s);
+    if(s&&Array.isArray(s.teams)){
+      // A session saved before the title screen existed is already under way —
+      // don't ambush it with one on its next load.
+      if(typeof s.started==="undefined") s.started=true;
+      return Object.assign(defaultState(),s);
+    }
   }catch(e){} return defaultState();
 }
 /* control writes shared state; display mostly reads. */
@@ -523,7 +588,7 @@ bc.onmessage = (e)=>{
     }
     renderScores(); updateChrome();
     if(state.boardIndex!==prevBoard || BOARDS[state.boardIndex]!==currentBoardSrc) ensureBoard();
-    if(SCREEN==="display"){ if(prevBuzz!==state.buzzerCode) updateBuzzer(); updateBuzzFirst(); renderTvPodium(); }
+    if(SCREEN==="display"){ if(prevBuzz!==state.buzzerCode) updateBuzzer(); updateBuzzFirst(); renderTvPodium(); renderTitleScreen(); }
     updateQrOverlay();
   } else if(m.type==="boardView" && SCREEN==="display"){
     state.boardView=m.view; applyDisplayBoardView(m.view);
@@ -883,6 +948,7 @@ function updateChrome(){
   const nb=document.getElementById("nextBtn"); if(nb)nb.textContent=state.boardIndex<BOARDS.length-1?`Board ${state.boardIndex+2} →`:"🏁 Final results";
   setAwardInputs(state.award);
   refreshBuzzStatus();
+  const beginBtn=document.getElementById("beginGameBtn"); if(beginBtn) beginBtn.style.display=state.started?"none":"";
 }
 function goNext(){ if(state.boardIndex<BOARDS.length-1){ const n=state.boardIndex+2; loadBoard(state.boardIndex+1); hideOverlay(); toast(`Now on Board ${n-1} — scores carried over`);} else showFinal(); }
 function onBoardComplete(){
@@ -1296,6 +1362,23 @@ function dropSparks(){
   }
 }
 
+/* ---------- TV: title screen, up until the host hits Begin Game ---------- */
+function renderTitleScreen(){
+  const el=document.getElementById("titleScreen"); if(!el) return;
+  const show=!state.started;
+  el.classList.toggle("show",show);
+  if(!show) return;
+  const wrap=document.getElementById("titleQrWrap");
+  if(!state.buzzerCode){ wrap.style.display="none"; return; }
+  wrap.style.display="flex";
+  const box=document.getElementById("titleQrBig");
+  if(box.dataset.code===state.buzzerCode) return;
+  box.dataset.code=state.buzzerCode;
+  box.innerHTML="";
+  try{ box.appendChild(QR.canvas(joinURL(),180,{margin:2})); }
+  catch(e){ box.textContent=joinURL(); }
+}
+
 /* ---------- Join-QR overlay (purely visual; shown on both screens) ---------- */
 function toggleQr(){
   if(!state.buzzerCode){ toast("Create a buzzer room first"); return; }
@@ -1304,7 +1387,8 @@ function toggleQr(){
 function closeQr(){ if(!state.qrOverlay) return; state.qrOverlay=false; pushState(); updateQrOverlay(); }
 function updateQrOverlay(){
   const o=document.getElementById("qrOverlay"); if(!o)return;
-  if(state.qrOverlay && state.buzzerCode){
+  const btn=document.getElementById("qrBtn"); if(btn) btn.classList.toggle("on",!!state.qrOverlay);
+  if(state.qrOverlay && state.buzzerCode && SCREEN==="display"){
     o.classList.add("show");
     const code=document.getElementById("qrRoomCode"); if(code) code.textContent=state.buzzerCode;
     const url=document.getElementById("qrUrlText"); if(url) url.textContent=joinURL().replace(/^https?:\/\//,"");
@@ -1324,9 +1408,22 @@ function openTv(){
   // Carry the launch params through, so the TV resolves the same boards even on
   // a cold open (state.boards covers it too — belt and braces).
   const q=new URLSearchParams(location.search); q.set("screen","display");
-  tvWin=window.open("index.html?"+q.toString(),"triviaTV");
+  // A single shared window name across every game's console, so opening the TV
+  // for a different game reuses/replaces whatever is already fullscreen there
+  // instead of piling up a new tab per game.
+  tvWin=window.open("index.html?"+q.toString(),"gameShowTV");
   if(tvWin){tvWin.focus(); setTimeout(pushState,400); setTimeout(pushBoardView,600);}
   else toast("Allow pop-ups for this page, then retry");
+}
+
+/* ---------- TV: resume full screen after this window gets reused for another game ---------- */
+function initFsResume(){
+  const el=document.getElementById("fsResume");
+  if(!el) return;
+  const check=()=>el.classList.toggle("show",!document.fullscreenElement);
+  el.addEventListener("click",()=>{ document.documentElement.requestFullscreen().catch(()=>{}); });
+  document.addEventListener("fullscreenchange",check);
+  check();
 }
 
 /* ---------- toast ---------- */
@@ -1340,6 +1437,7 @@ if(SCREEN==="control"){
     if(confirm("Return to the Game Show Studio home screen?\n\nYour scores and progress are saved — you can come back to this game.")) location.href="home.html";
   });
   document.getElementById("openTvBtn").addEventListener("click",openTv);
+  document.getElementById("beginGameBtn").addEventListener("click",()=>{ state.started=true; pushState(); updateChrome(); });
   document.getElementById("nextBtn").addEventListener("click",goNext);
   document.getElementById("setupBtn").addEventListener("click",showSetup);
   document.getElementById("editBtn").addEventListener("click",function(){document.body.classList.toggle("editing");this.classList.toggle("primary");});
@@ -1390,7 +1488,7 @@ if(SCREEN==="control"){
   }catch(e){}
 }
 if(SCREEN==="display"){
-  updateBuzzer(); updateBuzzFirst(); renderTvPodium(); bc.postMessage({type:"ping"});
+  updateBuzzer(); updateBuzzFirst(); renderTvPodium(); bc.postMessage({type:"ping"}); initFsResume(); renderTitleScreen();
   /* Watchdog: opening a clue on control MUST open it here. A dropped message, a
      late-loading iframe or a board that closed its own modal all self-correct
      within half a second — applyDisplayBoardView() is idempotent and reads the

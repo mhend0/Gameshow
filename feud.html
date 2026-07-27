@@ -4,6 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Family Feud · Console</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="platform/ui/pwa.js" defer></script>
 <link rel="stylesheet" href="platform/ui/theme.css" />
 <style>
 /* =====================================================================
@@ -83,6 +93,7 @@ body[data-screen="control"] #boardHolder.locked .fb-slot:hover .fb-front{ backgr
 .btn.go:hover{ filter:brightness(1.06); }
 .btn.good{ background:linear-gradient(135deg,#34d399,#16a34a); color:#04140b; border-color:transparent; }
 .btn.bad{ background:linear-gradient(135deg,#f87171,#dc2626); color:#fff; border-color:transparent; }
+.btn.on{ background:linear-gradient(135deg,var(--gold),var(--gold-bright)); color:#241a05; border-color:transparent; font-weight:800; }
 .kbd{ font-size:10.5px; opacity:.65; font-weight:700; margin-left:4px; }
 .btn.ready{ animation:btnReady 1.6s var(--ease) infinite; }
 @keyframes btnReady{ 0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 70%,transparent) }
@@ -265,6 +276,34 @@ body[data-screen="control"] .said{ font-size:13px; bottom:-6px; }
 #qrOverlay .qr-code{ font-size:clamp(28px,4vw,58px); font-weight:900; letter-spacing:.16em; color:var(--gold-bright); margin-top:12px; }
 #qrOverlay .qr-url{ color:var(--text-1); font-size:clamp(13px,1.3vw,19px); margin:6px 0 0; }
 
+/* Tap-anywhere prompt to resume full screen after this TV window gets reused
+   for a different game — cross-document navigation always drops the browser
+   out of fullscreen, and JS can only re-request it from a real user gesture. */
+#fsResume{ position:fixed; inset:0; z-index:400; display:none; align-items:flex-end; justify-content:center; padding-bottom:6vh; cursor:pointer; }
+#fsResume.show{ display:flex; }
+#fsResume .pill{ background:color-mix(in srgb,#000 60%,transparent); border:2px solid var(--gold); border-radius:999px;
+  color:var(--gold-bright); font-size:clamp(16px,2.2vw,24px); font-weight:700; padding:16px 32px;
+  box-shadow:var(--shadow-3); animation:fsPulse 1.8s ease-in-out infinite; }
+@keyframes fsPulse{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.04) } }
+
+/* TV: title screen, shown until the host hits Begin Game. Sits below #fsResume
+   (z-index 400) so the tap-to-fullscreen prompt still reaches through it. */
+#titleScreen{ position:fixed; inset:0; z-index:350; display:none; place-items:center; text-align:center; padding:24px;
+  background:radial-gradient(1200px 800px at 50% 20%,color-mix(in srgb,var(--accent) 22%,#05070d),#05070d 70%); }
+#titleScreen.show{ display:grid; }
+#titleScreen .glyph{ font-size:clamp(60px,10vw,140px); animation:titleFloat 3.2s ease-in-out infinite; }
+#titleScreen h1{ font-size:clamp(32px,7vw,88px); font-weight:900; letter-spacing:.02em; margin:6px 0 4px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2)); -webkit-background-clip:text; background-clip:text; color:transparent;
+  animation:titleIn .8s var(--ease) both; }
+#titleScreen .tagline{ font-size:clamp(16px,2.2vw,26px); color:var(--text-1); margin:0 0 28px; animation:titleIn .8s var(--ease) .1s both; }
+#titleScreen .waiting{ font-size:clamp(14px,1.6vw,19px); color:var(--text-2); letter-spacing:.08em; text-transform:uppercase;
+  font-weight:700; animation:titlePulse 1.8s ease-in-out infinite; }
+#titleScreen .qr-wrap{ margin-top:30px; display:none; flex-direction:column; align-items:center; gap:10px; }
+#titleScreen .qr-wrap .box{ background:#fff; padding:10px; border-radius:14px; box-shadow:var(--shadow-3); }
+@keyframes titleFloat{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-14px) } }
+@keyframes titleIn{ from{ opacity:0; transform:translateY(18px) } to{ opacity:1; transform:translateY(0) } }
+@keyframes titlePulse{ 0%,100%{ opacity:.55 } 50%{ opacity:1 } }
+
 /* ---- host-only modals ------------------------------------------------ */
 #overlay{ position:fixed; inset:0; z-index:120; display:none; place-items:center; padding:24px;
   background:color-mix(in srgb,#000 66%,transparent); backdrop-filter:blur(6px); }
@@ -313,6 +352,7 @@ body[data-screen="control"] .said{ font-size:13px; bottom:-6px; }
     <button class="btn sm" id="resetRoundBtn" title="Restart this round">↺</button>
     <button class="btn sm" id="overrideBtn" title="Manual overrides">⚙ Overrides</button>
     <div class="spacer"></div>
+    <button class="btn sm go ready" id="beginGameBtn" title="Let the room off the title screen">▶ Begin Game</button>
     <button class="btn sm" id="soundBtn" title="Sound on this screen">🔇</button>
     <button class="btn sm" id="openTvBtn">🖥 TV Display</button>
     <button class="btn sm" id="setupBtn">⚙ Setup</button>
@@ -421,6 +461,23 @@ body[data-screen="control"] .said{ font-size:13px; bottom:-6px; }
       <p class="qr-url" id="qrUrl"></p>
     </div>
   </div>
+
+  <!-- TV: title screen, shown until the host hits Begin Game -->
+  <div id="titleScreen">
+    <div>
+      <div class="glyph">👪</div>
+      <h1>FAMILY FEUD</h1>
+      <p class="tagline">Survey says…</p>
+      <p class="waiting">Waiting for the host to start…</p>
+      <div class="qr-wrap" id="titleQrWrap">
+        <div class="box" id="titleQrBig"></div>
+        <p class="tiny">Scan to join on your phone</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TV: tap-anywhere prompt to resume full screen -->
+  <div id="fsResume"><div class="pill">Tap to enter full screen</div></div>
 
   <div id="banner"><div class="card2"><h1 id="bannerText"></h1><p id="bannerSub"></p></div></div>
   <div id="confetti"></div>

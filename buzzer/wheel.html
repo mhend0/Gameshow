@@ -57,6 +57,9 @@
   .ok{color:#7df0d3;font-size:14px;font-weight:700;text-align:center;}
   .foot{flex:0 0 auto;padding:8px;text-align:center;font-size:11.5px;color:#4a6259;}
   .logo{font-size:38px;text-align:center;}
+  .gamehead{display:flex;flex-direction:column;align-items:center;gap:2px;}
+  .gamehead .glyph{font-size:34px;line-height:1;}
+  .gamehead .name{font-size:13px;font-weight:800;letter-spacing:.12em;color:#9aa3d6;text-transform:uppercase;}
   form{display:flex;flex-direction:column;gap:12px;width:min(90vw,340px);}
 </style>
 </head>
@@ -218,6 +221,7 @@ function tossupScreen(st) {
     return;
   }
   main.innerHTML = `${boardHtml(st)}
+    <div class="gamehead"><span class="glyph">🎡</span><span class="name">Wheel of Fortune</span></div>
     <div class="pill you">TOSS-UP${st.roundValue ? ` — $${Number(st.roundValue).toLocaleString()}` : ""}</div>
     <button class="go buzz" id="buzzBtn">BUZZ IN</button>
     <div class="sub">First in gets one guess. Get it wrong and you're out of this one.</div>
