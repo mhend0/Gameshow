@@ -71,6 +71,14 @@ The console you run the show on uses **two windows**:
 
 That's it. Operate everything from the Control window; the TV mirrors it.
 
+### Installing it as an app
+
+Chrome (desktop or mobile) can install Game Show Studio like a native app — an icon
+install button in the address bar, or **⋮ → Install Game Show Studio**. Installed, it
+opens in its own window with no address bar, works offline for pages you've already
+visited, and needs no reinstall to get updates — it's still the same hosted app under
+the hood, just launched without a browser chrome around it.
+
 ---
 
 ## Running the game
@@ -330,9 +338,14 @@ it, and they can pass from there.
   game's own domain core (`wheel.js`: puzzles, the board layout engine, the wedges, the rules —
   `feud.js`: surveys, the points ladder, the answer matcher, the rules).
 - `platform/ui/*` — design system (`theme.css`) and shared components (`ui.js`, `board-view.js`,
-  `puzzle-board.js`, `wheel-view.js`, `feud-board.js`, `sfx.js`), plus `panels/` — library and
-  session screens as mountable panels, so a standalone page and a game's settings tab are the
+  `puzzle-board.js`, `wheel-view.js`, `feud-board.js`, `sfx.js`, `pwa.js`), plus `panels/` — library
+  and session screens as mountable panels, so a standalone page and a game's settings tab are the
   same code.
+- `manifest.json`, `sw.js`, `icons/*`, `offline.html` — what makes the app installable: the PWA
+  manifest, a network-first service worker (falls back to cache only when there's no connection,
+  so it never fights `serve.py`'s "never cache" rule), the app icons, and the page shown for a
+  route you haven't opened before while offline. `platform/ui/pwa.js` registers the service worker
+  on every page and shows the install button on the top-level ones.
 - `serve.py` — the local web server the launcher starts. It's `http.server` plus "never cache",
   so an update can't leave your browser running half of the old app.
 - `board1.html`, `board2.html` — the original static boards (kept as a fallback; their content
