@@ -17,6 +17,8 @@ import {
 import { renderFeudBoard } from "../feud-board.js";
 import { el, toast, modal, confirmDialog, timeAgo } from "../ui.js";
 import { ensureFeudSeeded } from "../../core/feud-seed.js";
+import * as feudCsv from "../../core/feud-csv.js";
+import { csvToolbar } from "../csv-import.js";
 
 const DIFFICULTY = ["", "Easy", "Fairly easy", "Medium", "Tricky", "Hard"];
 
@@ -48,10 +50,11 @@ export function mountSurveys(root) {
 
   const newBtn = el("button", { class: "btn primary", text: "＋ New Survey" });
   const bulkBtn = el("button", { class: "btn", text: "⚡ Bulk add" });
+  const csv = csvToolbar({ mapper: feudCsv, getRecords: () => SurveyRepo.list(), onChanged: render });
 
   root.innerHTML = "";
   root.append(
-    el("div", { class: "sp-head" }, [count, el("span", { class: "sp-spacer" }), bulkBtn, newBtn]),
+    el("div", { class: "sp-head" }, [count, el("span", { class: "sp-spacer" }), csv.templateBtn, csv.exportBtn, csv.importBtn, csv.fileInput, bulkBtn, newBtn]),
     el("div", { class: "sp-toolbar" }, [
       el("div", { class: "search sp-search" }, [el("span", { text: "🔎" }), search]),
       favBtn,

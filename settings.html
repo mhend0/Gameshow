@@ -45,6 +45,8 @@
     // entry there plus its panel modules — nothing here needs to change.
     import { el, topbar, toast } from "./platform/ui/ui.js";
     import { getGame } from "./platform/core/games.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     const params = new URLSearchParams(location.search);
     const game = getGame(params.get("game"));

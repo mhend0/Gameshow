@@ -11,6 +11,8 @@ import { ensureSeeded } from "../../core/seed.js";
 import { renderBoardGrid } from "../board-view.js";
 import { el, toast, modal, confirmDialog, promptDialog, timeAgo } from "../ui.js";
 import { boardClueCount } from "../../core/models.js";
+import * as boardCsv from "../../core/board-csv.js";
+import { csvToolbar } from "../csv-import.js";
 
 /**
  * @param {HTMLElement} root
@@ -32,10 +34,11 @@ export function mountBoards(root) {
   const tagbar = el("div", { class: "bp-tagbar" });
   const content = el("div");
   const newBtn = el("button", { class: "btn primary", text: "＋ New Board" });
+  const csv = csvToolbar({ mapper: boardCsv, getRecords: () => BoardRepo.list(), onChanged: render });
 
   root.innerHTML = "";
   root.append(
-    el("div", { class: "bp-head" }, [sub, el("span", { class: "bp-spacer" }), newBtn]),
+    el("div", { class: "bp-head" }, [sub, el("span", { class: "bp-spacer" }), csv.templateBtn, csv.exportBtn, csv.importBtn, csv.fileInput, newBtn]),
     el("div", { class: "bp-toolbar" }, [
       el("div", { class: "search bp-search" }, [el("span", { text: "🔎" }), search]),
       favBtn,

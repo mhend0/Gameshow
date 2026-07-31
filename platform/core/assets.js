@@ -1,13 +1,19 @@
 // Asset system — keeps media portable.
 //
 // The platform never points at external file paths that could break when the
-// project moves. Imported media is copied into the asset store as a data URL and
-// referenced by asset id. Legacy boards may still carry external `src` URLs; those
-// can be "localised" (fetched into the store) on demand.
+// project moves. Imported media is copied into the asset store and referenced by
+// asset id. Legacy boards may still carry external `src` URLs; those can be
+// "localised" (fetched into the store) on demand.
+//
+// Bytes live as real Blobs in their own IndexedDB object store (see
+// `ASSET_BLOBS_STORE` in store.js), separate from the small metadata record
+// (kind/name/mime/size) that goes through the normal `assets` Collection. That
+// metadata is what's cached in memory at boot; the bytes are only ever fetched
+// on demand, when something actually needs to render that asset.
 
 import { AssetRepo } from "./repos.js";
 import { makeAsset, makeMediaRef } from "./models.js";
-import { storageUsage } from "./store.js";
+import { getDb, StorageFullError, isQuotaError } from "./store.js";
 
 const KIND_BY_PREFIX = { image: "image", audio: "audio", video: "video" };
 
@@ -17,33 +23,84 @@ export function kindFromMime(mime = "") {
   return KIND_BY_PREFIX[p] || "image";
 }
 
-/** Read a File into a data URL. */
-export function fileToDataUrl(file) {
+/* --------------------------------------------------------- asset blob store */
+
+const ASSET_BLOBS_STORE = "assetBlobs";
+
+function reqAsPromise(req) {
   return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
 }
 
+function txDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+async function getBlob(id) {
+  const db = await getDb();
+  const row = await reqAsPromise(db.transaction(ASSET_BLOBS_STORE, "readonly").objectStore(ASSET_BLOBS_STORE).get(id));
+  return row ? row.blob : null;
+}
+
+async function putBlob(id, blob) {
+  try {
+    const db = await getDb();
+    const tx = db.transaction(ASSET_BLOBS_STORE, "readwrite");
+    tx.objectStore(ASSET_BLOBS_STORE).put({ id, blob });
+    await txDone(tx);
+  } catch (e) {
+    throw isQuotaError(e) ? new StorageFullError("assets") : e;
+  }
+}
+
+async function deleteBlob(id) {
+  const db = await getDb();
+  const tx = db.transaction(ASSET_BLOBS_STORE, "readwrite");
+  tx.objectStore(ASSET_BLOBS_STORE).delete(id);
+  await txDone(tx);
+}
+
+// One-time upgrade path: asset metadata records written before this file stored
+// bytes as Blobs still carry their bytes as a base64 `data:` URL on the record
+// itself. Convert those to a real Blob the first time they're resolved, then
+// drop `data` from the metadata so this only ever runs once per asset.
+async function resolveBlob(meta) {
+  const blob = await getBlob(meta.id);
+  if (blob) return blob;
+  if (typeof meta.data === "string" && meta.data.startsWith("data:")) {
+    try {
+      const converted = await (await fetch(meta.data)).blob();
+      await putBlob(meta.id, converted);
+      const { data, ...rest } = meta;
+      AssetRepo.put(rest);
+      return converted;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Bytes currently used by stored assets (their metadata's own `size` field). */
+export function assetStorageUsage() {
+  let bytes = 0;
+  for (const a of AssetRepo.list()) bytes += a.size || 0;
+  return bytes;
+}
+
 /* ---------------------------------------------------------------------------
-   Image budget. Assets live in localStorage as data URLs, and the browser caps
-   that at a few MB per site. A phone photo is 3–8 MB and base64 adds ~33% on
-   top, so a handful of straight-from-the-camera pictures fills the whole store
-   and every later save fails. Photos are therefore resized and re-encoded on
-   import — 1400px is still sharper than any TV will show a clue at.
+   Image budget. A phone photo is 3–8 MB, so photos are resized and re-encoded
+   on import — 1400px is still sharper than any TV will show a clue at.
 --------------------------------------------------------------------------- */
 const MAX_EDGE = 1400;
 const JPEG_Q = 0.82;
 const WEBP_Q = 0.85;
-
-/** Bytes a data URL actually occupies once base64 is decoded. */
-export function dataUrlBytes(d) {
-  const s = String(d || ""), i = s.indexOf(",");
-  if (i < 0) return s.length;
-  return Math.floor((s.length - i - 1) * 3 / 4);
-}
 
 let _webp = null;
 function webpSupported() {
@@ -77,7 +134,8 @@ const canvasToBlob = (canvas, mime, q) => new Promise(res => canvas.toBlob(res, 
 
 /**
  * Resize/re-encode an image so it fits the storage budget.
- * @returns {Promise<{data:string,mime:string,size:number,width:number,height:number}|null>}
+ * @param {string|Blob} src
+ * @returns {Promise<{blob:Blob,mime:string,size:number,width:number,height:number}|null>}
  *          null when the original should be kept untouched.
  */
 export async function compressImage(src, mime = "", originalBytes = 0) {
@@ -104,8 +162,16 @@ export async function compressImage(src, mime = "", originalBytes = 0) {
   if (!blob) return null;
   // Already lean enough — leave it alone rather than re-compressing every pass.
   if (scale === 1 && originalBytes && blob.size >= originalBytes * 0.9) return null;
-  const data = await blobToDataUrl(blob);
-  return { data, mime: outMime, size: blob.size, width: w, height: h };
+  return { blob, mime: outMime, size: blob.size, width: w, height: h };
+}
+
+/** Object URLs are created lazily, per asset, and cached so repeated renders of
+ *  the same clue don't keep minting (and leaking) new ones. */
+const urlCache = new Map(); // assetId -> objectURL
+
+function forgetUrl(id) {
+  const u = urlCache.get(id);
+  if (u) { URL.revokeObjectURL(u); urlCache.delete(id); }
 }
 
 export const AssetService = {
@@ -116,14 +182,14 @@ export const AssetService = {
    */
   async importFile(file) {
     const kind = kindFromMime(file.type);
-    let data = null, mime = file.type, size = file.size || 0;
+    let blob = file, mime = file.type, size = file.size || 0;
     if (kind === "image") {
       const small = await compressImage(file, file.type, file.size || 0);
-      if (small) { data = small.data; mime = small.mime; size = small.size; }
+      if (small) { blob = small.blob; mime = small.mime; size = small.size; }
     }
-    if (!data) data = await fileToDataUrl(file);
-    const asset = makeAsset({ kind, name: file.name || "asset", mime, data, size });
-    AssetRepo.put(asset);                                // throws StorageFullError when full
+    const asset = makeAsset({ kind, name: file.name || "asset", mime, size });
+    await putBlob(asset.id, blob);        // throws StorageFullError when full
+    AssetRepo.put(asset);
     return makeMediaRef({ kind, assetId: asset.id, alt: file.name || "" });
   },
 
@@ -133,34 +199,44 @@ export const AssetService = {
    * @returns {Promise<{count:number, before:number, after:number}>}
    */
   async recompressAll() {
-    const before = storageUsage();
+    const before = assetStorageUsage();
     let count = 0;
-    for (const a of AssetRepo.list()) {
-      if (!a || a.kind !== "image") continue;
-      const d = String(a.data || "");
-      if (!d.startsWith("data:")) continue;
-      const mime = d.slice(5, d.indexOf(";") > 0 ? d.indexOf(";") : d.indexOf(",")) || a.mime || "";
-      const wasBytes = dataUrlBytes(d);
+    for (const meta of AssetRepo.list()) {
+      if (!meta || meta.kind !== "image") continue;
+      const blob = await resolveBlob(meta);
+      if (!blob) continue;
       let small = null;
-      try { small = await compressImage(d, mime, wasBytes); } catch { small = null; }
-      if (small && dataUrlBytes(small.data) < wasBytes) {
-        AssetRepo.put({ ...a, data: small.data, mime: small.mime, size: small.size });
+      try { small = await compressImage(blob, meta.mime, blob.size); } catch { small = null; }
+      if (small && small.size < blob.size) {
+        await putBlob(meta.id, small.blob);
+        forgetUrl(meta.id);
+        AssetRepo.put({ ...meta, mime: small.mime, size: small.size });
         count++;
       }
     }
-    return { count, before, after: storageUsage() };
+    return { count, before, after: assetStorageUsage() };
   },
 
   /**
-   * Resolve a MediaRef to a renderable URL.
+   * Resolve a MediaRef to a renderable URL. Bytes are fetched from IndexedDB
+   * on demand (and cached as an object URL) — nothing about a MediaRef is
+   * resolvable synchronously any more, so every caller awaits this.
    * @param {import("./models.js").MediaRef} ref
-   * @returns {{kind:string, url:string, alt:string}|null}
+   * @returns {Promise<{kind:string, url:string, alt:string}|null>}
    */
-  resolve(ref) {
+  async resolve(ref) {
     if (!ref) return null;
     if (ref.assetId) {
-      const a = AssetRepo.get(ref.assetId);
-      if (a) return { kind: a.kind, url: a.data, alt: ref.alt || a.name || "" };
+      const meta = AssetRepo.get(ref.assetId);
+      if (!meta) return null;
+      let url = urlCache.get(ref.assetId);
+      if (!url) {
+        const blob = await resolveBlob(meta);
+        if (!blob) return null;
+        url = URL.createObjectURL(blob);
+        urlCache.set(ref.assetId, url);
+      }
+      return { kind: meta.kind, url, alt: ref.alt || meta.name || "" };
     }
     if (ref.src) return { kind: ref.kind || "image", url: ref.src, alt: ref.alt || "" };
     return null;
@@ -178,30 +254,29 @@ export const AssetService = {
       const res = await fetch(ref.src, { mode: "cors" });
       if (!res.ok) return ref;
       const blob = await res.blob();
-      const data = await blobToDataUrl(blob);
       const kind = kindFromMime(blob.type || "");
       const name = ref.src.split("/").pop() || "asset";
-      const asset = makeAsset({ kind, name, mime: blob.type, data, size: blob.size });
+      const asset = makeAsset({ kind, name, mime: blob.type, size: blob.size });
+      await putBlob(asset.id, blob);
       AssetRepo.put(asset);
       return makeMediaRef({ kind, assetId: asset.id, alt: ref.alt || "" });
     } catch {
       return ref; // stays external; still works while online
     }
   },
-};
 
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(blob);
-  });
-}
+  /** Drop an asset's bytes and metadata together (not currently wired into any UI). */
+  async remove(id) {
+    forgetUrl(id);
+    await deleteBlob(id);
+    AssetRepo.remove(id);
+  },
+};
 
 /**
  * Render a RichContent block into a container element (text + resolved media).
- * Shared by editor previews, the library and the live board.
+ * Media resolves asynchronously and is appended as each ref comes back, so the
+ * element itself is returned — and can be inserted into the page — immediately.
  * @param {import("./models.js").RichContent} rc
  * @param {{maxMediaHeight?:string, textClass?:string}} [opts]
  * @returns {HTMLElement}
@@ -216,24 +291,25 @@ export function renderRichContent(rc, opts = {}) {
     wrap.appendChild(t);
   }
   for (const ref of (rc && rc.media) || []) {
-    const r = AssetService.resolve(ref);
-    if (!r) continue;
-    let node;
-    if (r.kind === "image") {
-      node = document.createElement("img");
-      node.src = r.url; node.alt = r.alt || "";
-    } else if (r.kind === "audio") {
-      node = document.createElement("audio");
-      node.src = r.url; node.controls = true;
-    } else if (r.kind === "video") {
-      node = document.createElement("video");
-      node.src = r.url; node.controls = true;
-    }
-    if (node) {
-      node.className = "gsp-rich-media";
-      if (opts.maxMediaHeight && node.style) node.style.maxHeight = opts.maxMediaHeight;
-      wrap.appendChild(node);
-    }
+    AssetService.resolve(ref).then((r) => {
+      if (!r) return;
+      let node;
+      if (r.kind === "image") {
+        node = document.createElement("img");
+        node.src = r.url; node.alt = r.alt || "";
+      } else if (r.kind === "audio") {
+        node = document.createElement("audio");
+        node.src = r.url; node.controls = true;
+      } else if (r.kind === "video") {
+        node = document.createElement("video");
+        node.src = r.url; node.controls = true;
+      }
+      if (node) {
+        node.className = "gsp-rich-media";
+        if (opts.maxMediaHeight && node.style) node.style.maxHeight = opts.maxMediaHeight;
+        wrap.appendChild(node);
+      }
+    });
   }
   return wrap;
 }

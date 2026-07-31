@@ -30,6 +30,8 @@
     // and the game's settings screen render exactly the same component.
     import { el, topbar } from "./platform/ui/ui.js";
     import { mountBoards } from "./platform/ui/panels/boards-panel.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     document.getElementById("topbar").replaceWith(
       topbar({ active: "Boards", links: [

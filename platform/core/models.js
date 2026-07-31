@@ -73,10 +73,12 @@ export const SCHEMA_VERSION = 1;
  * @property {MediaKind} kind
  * @property {string} name
  * @property {string} mime
- * @property {string} data        Data URL (portable) OR external URL.
- * @property {boolean} external   True when `data` is a remote URL not yet localised.
- * @property {number} size        Bytes (0 when unknown/external).
+ * @property {number} size        Bytes.
  * @property {string} createdAt
+ *
+ * The raw bytes are not part of this record — they live in IndexedDB's asset
+ * blob store, keyed by `id` (see `platform/core/assets.js`). Keeping them out
+ * keeps this record (and therefore the in-memory Collection cache) small.
  */
 
 const nowIso = () => new Date().toISOString();
@@ -158,14 +160,12 @@ export function makeSession({ name = "New Session", gameKey = "jeopardy", boardI
 }
 
 /** @returns {Asset} */
-export function makeAsset({ kind = "image", name = "asset", mime = "", data = "", external = false, size = 0 } = {}) {
+export function makeAsset({ kind = "image", name = "asset", mime = "", size = 0 } = {}) {
   return {
     id: newId("asset"),
     kind,
     name,
     mime,
-    data,
-    external: !!external,
     size,
     createdAt: nowIso(),
   };

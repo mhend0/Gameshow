@@ -155,6 +155,8 @@
     import { BoardRepo } from "./platform/core/repos.js";
     import { AssetService } from "./platform/core/assets.js";
     import { richIsEmpty } from "./platform/core/models.js";
+    import { ready } from "./platform/core/store.js";
+    await ready;
 
     const params = new URLSearchParams(location.search);
     const board = BoardRepo.get(params.get("board"));
@@ -240,14 +242,18 @@
         t.textContent = rc.text;
         wrap.appendChild(t);
       }
+      // Media resolves asynchronously (bytes are fetched from IndexedDB on
+      // demand) and is appended as each ref comes back — `wrap` itself is
+      // returned, and can be inserted, immediately.
       for (const ref of (rc && rc.media) || []) {
-        const res = AssetService.resolve(ref);
-        if (!res) continue;
-        let node;
-        if (res.kind === "image") { node = new Image(); node.src = res.url; node.alt = res.alt || ""; }
-        else if (res.kind === "audio") { node = document.createElement("audio"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; }
-        else if (res.kind === "video") { node = document.createElement("video"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; node.playsInline = true; }
-        if (node) { node.className = big ? "" : "ans-media"; wrap.appendChild(node); }
+        AssetService.resolve(ref).then((res) => {
+          if (!res) return;
+          let node;
+          if (res.kind === "image") { node = new Image(); node.src = res.url; node.alt = res.alt || ""; }
+          else if (res.kind === "audio") { node = document.createElement("audio"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; }
+          else if (res.kind === "video") { node = document.createElement("video"); node.src = res.url; node.controls = true; node.autoplay = !!window.do_autoplay; node.playsInline = true; }
+          if (node) { node.className = big ? "" : "ans-media"; wrap.appendChild(node); }
+        });
       }
       return wrap;
     }
@@ -299,8 +305,7 @@
         clueBox.textContent = clue.prompt?.text || "";
         mediaBox.innerHTML = "";
         for (const ref of clue.prompt?.media || []) {
-          const res = AssetService.resolve(ref); if (!res) continue;
-          appendMedia(mediaBox, res);
+          AssetService.resolve(ref).then((res) => { if (res) appendMedia(mediaBox, res); });
         }
         const q = modalEl.querySelector(".question");
         q.className = "question"; q.style.display = "none"; q.innerHTML = "";
@@ -329,8 +334,7 @@
         txt.textContent = clue.response?.text || "";
         q.appendChild(txt);
         for (const ref of clue.response?.media || []) {
-          const res = AssetService.resolve(ref); if (!res) continue;
-          appendMedia(q, res, true);
+          AssetService.resolve(ref).then((res) => { if (res) appendMedia(q, res, true); });
         }
         // A picture clue already fills the screen, so an answer stacked underneath
         // falls outside the modal and can't be seen. When either side carries
