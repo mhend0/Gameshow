@@ -10,6 +10,7 @@ import {
   surveyIssues, surveyIsPlayable, surveyTotal, FEUD_RULES,
 } from "../../core/feud.js";
 import { el, toast, modal, confirmDialog, promptDialog, timeAgo } from "../ui.js";
+import { ensureFeudSeeded } from "../../core/feud-seed.js";
 
 const MULTIPLIERS = [
   { value: 1, label: "Single" },
@@ -260,6 +261,7 @@ export function mountFeudSessions(root) {
   newBtn.addEventListener("click", newSession);
   const offSessions = FeudSessionRepo.subscribe(render);
   const offSurveys = SurveyRepo.subscribe(render);
+  ensureFeudSeeded();   // synchronous — first-run surveys are ready before this returns
   render();
 
   return {

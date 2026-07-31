@@ -3,6 +3,7 @@
 
 import { WheelSessionRepo, PuzzleRepo, makeRound, ROUND_KINDS, getRoundKind } from "../../core/wheel.js";
 import { el, toast, modal, confirmDialog, promptDialog, timeAgo } from "../ui.js";
+import { ensureWheelSeeded } from "../../core/wheel-seed.js";
 
 /**
  * @param {HTMLElement} root
@@ -201,6 +202,7 @@ export function mountWheelSessions(root) {
   newBtn.addEventListener("click", newSession);
   const offSessions = WheelSessionRepo.subscribe(render);
   const offPuzzles = PuzzleRepo.subscribe(render);
+  ensureWheelSeeded();   // synchronous — first-run puzzles are ready before this returns
   render();
 
   return {

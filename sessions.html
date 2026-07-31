@@ -6,39 +6,9 @@
 <title>Sessions · Game Show Studio</title>
 <link rel="stylesheet" href="platform/ui/theme.css" />
 <style>
-  .page-head { display:flex; align-items:flex-end; gap:16px; margin:28px 0 22px; flex-wrap:wrap; }
+  .page-head { display:flex; align-items:flex-end; gap:16px; margin:28px 0 20px; flex-wrap:wrap; }
   .page-head h1 { font-size:30px; }
   .page-head .sub { color:var(--text-2); font-size:14px; margin-top:4px; }
-  .page-head .spacer { flex:1; }
-
-  .session-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:18px; padding-bottom:60px; }
-  .session-card { display:flex; flex-direction:column; padding:20px; gap:14px; }
-  .sc-head { display:flex; align-items:flex-start; gap:12px; }
-  .sc-glyph { width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:22px;flex:none;
-    background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:var(--shadow-2),inset 0 1px 0 rgba(255,255,255,.25); }
-  .sc-title { font-size:18px; font-weight:700; }
-  .sc-meta { color:var(--text-2); font-size:12.5px; font-weight:600; margin-top:2px; }
-  .sc-boards { display:flex; flex-direction:column; gap:6px; }
-  .sc-board-row { display:flex; align-items:center; gap:10px; padding:8px 11px; background:var(--bg-1); border:1px solid var(--line-soft); border-radius:10px; font-size:13.5px; }
-  .sc-board-row .idx { width:20px;height:20px;border-radius:6px;background:var(--bg-3);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--text-1);flex:none; }
-  .sc-board-row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .sc-board-row .ct { color:var(--text-2); font-size:12px; }
-  .sc-empty-boards { color:var(--text-2); font-size:13px; padding:8px 0; }
-  .sc-actions { display:flex; gap:8px; margin-top:auto; }
-  .sc-actions .spacer { flex:1; }
-
-  /* board picker (session editor) */
-  .picker { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .picker h4 { font-size:12.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-2); margin-bottom:10px; }
-  .pick-list { display:flex; flex-direction:column; gap:7px; max-height:46vh; overflow:auto; padding-right:4px; }
-  .pick-row { display:flex; align-items:center; gap:9px; padding:9px 11px; border:1px solid var(--line-soft); border-radius:10px; background:var(--bg-1); }
-  .pick-row .nm { flex:1; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .pick-row .ct { color:var(--text-2); font-size:11.5px; }
-  .pick-row .reorder { display:flex; flex-direction:column; gap:1px; }
-  .pick-row .reorder button, .icon-btn { width:24px;height:20px;border:1px solid var(--line);background:var(--bg-3);color:var(--text-1);border-radius:6px;cursor:pointer;font-size:11px;line-height:1;display:grid;place-items:center; }
-  .icon-btn { width:26px;height:26px; }
-  .icon-btn:hover { color:var(--text-0);border-color:var(--line); }
-  @media (max-width:640px){ .picker{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -49,165 +19,26 @@
         <h1>Sessions</h1>
         <div class="sub">Plan a run of boards — a session references boards, so one board can be reused across many sessions.</div>
       </div>
-      <div class="spacer"></div>
-      <button class="btn primary" id="newSession">＋ New Session</button>
     </div>
-    <div id="content"></div>
+    <div id="panel"></div>
   </main>
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { SessionRepo, BoardRepo } from "./platform/core/repos.js";
-    import { ensureSeeded } from "./platform/core/seed.js";
-    import { el, toast, modal, confirmDialog, promptDialog, timeAgo, topbar } from "./platform/ui/ui.js";
-    import { boardClueCount } from "./platform/core/models.js";
+    import { el, topbar } from "./platform/ui/ui.js";
+    import { mountSessions } from "./platform/ui/panels/sessions-panel.js";
 
     document.getElementById("topbar").replaceWith(
       topbar({ active: "Sessions", links: [
         { href: "home.html", label: "Home" },
         { href: "boards.html", label: "Boards" },
         { href: "sessions.html", label: "Sessions" },
+      ], right: [
+        el("a", { class: "btn primary sm", href: "index.html?screen=control", text: "▶ Open Console" }),
       ]})
     );
 
-    const content = document.getElementById("content");
-
-    function sessionCard(session) {
-      const boards = session.boardIds.map(id => BoardRepo.get(id)).filter(Boolean);
-      const totalClues = boards.reduce((n, b) => n + boardClueCount(b), 0);
-
-      const boardsBox = boards.length
-        ? el("div", { class: "sc-boards" }, boards.map((b, i) =>
-            el("div", { class: "sc-board-row" }, [
-              el("span", { class: "idx", text: String(i + 1) }),
-              el("span", { class: "nm", text: b.name }),
-              el("span", { class: "ct", text: `${(b.categories||[]).length}×${Math.max(...(b.categories||[{clues:[]}]).map(c=>c.clues.length),0)}` }),
-            ])))
-        : el("div", { class: "sc-empty-boards", text: "No boards yet — add some to play." });
-
-      return el("div", { class: "session-card card" }, [
-        el("div", { class: "sc-head" }, [
-          el("div", { class: "sc-glyph", text: "🎯" }),
-          el("div", { style:{flex:1} }, [
-            el("div", { class: "sc-title", text: session.name }),
-            el("div", { class: "sc-meta", text: `${boards.length} board${boards.length===1?"":"s"} · ${totalClues} clues · ${timeAgo(session.updatedAt)}` }),
-          ]),
-          el("button", { class:"icon-btn", html:"⋯", title:"More", onClick:(e)=>menu(session, e.currentTarget) }),
-        ]),
-        boardsBox,
-        el("div", { class: "sc-actions" }, [
-          el("button", { class:"btn sm", text:"Edit", onClick:()=>editSession(session) }),
-          el("span", { class:"spacer" }),
-          el("button", { class:"btn sm primary", text:"▶ Launch", disabled: boards.length?null:"", onClick:()=>launch(session) }),
-        ]),
-      ]);
-    }
-
-    function launch(session) {
-      location.href = `index.html?screen=control&session=${session.id}`;
-    }
-
-    function menu(session, anchor) {
-      const items = [
-        { label:"Rename", fn: async()=>{ const n=await promptDialog({title:"Rename session",label:"Session name",value:session.name}); if(n) SessionRepo.rename(session.id,n); } },
-        { label:"Duplicate", fn: ()=>{ SessionRepo.duplicate(session.id); toast("Session duplicated"); } },
-        { label:"Delete", danger:true, fn: async()=>{ if(await confirmDialog({title:"Delete session?",message:`“${session.name}” will be removed. The boards it references are not deleted.`,confirmText:"Delete",danger:true})) { SessionRepo.remove(session.id); toast("Session deleted"); } } },
-      ];
-      const list = el("div", { class:"popmenu card" }, items.map(it=>
-        el("button",{class:`popmenu-item ${it.danger?"danger":""}`,text:it.label,onClick:()=>{closePop();it.fn();}})));
-      openPop(list, anchor);
-    }
-    let popEl;
-    function openPop(node, anchor){ closePop(); popEl=node; document.body.appendChild(node); const r=anchor.getBoundingClientRect();
-      Object.assign(node.style,{position:"fixed",top:`${r.bottom+6}px`,left:`${Math.min(r.left,innerWidth-190)}px`,zIndex:"150"});
-      setTimeout(()=>document.addEventListener("mousedown",onDoc),0); }
-    function onDoc(e){ if(popEl&&!popEl.contains(e.target)) closePop(); }
-    function closePop(){ if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",onDoc);} }
-
-    /* ---- session editor (choose + reorder boards) ---- */
-    function editSession(session) {
-      let chosen = [...session.boardIds];
-      const all = BoardRepo.list();
-
-      const render = () => {
-        const chosenBoards = chosen.map(id => all.find(b => b.id === id)).filter(Boolean);
-        const available = all.filter(b => !chosen.includes(b.id));
-
-        left.innerHTML = ""; right.innerHTML = "";
-        if (!chosenBoards.length) left.appendChild(el("div",{class:"sc-empty-boards",text:"No boards in this session yet. Add from the right →"}));
-        chosenBoards.forEach((b, i) => {
-          left.appendChild(el("div", { class:"pick-row" }, [
-            el("span", { class:"idx", style:{width:"20px",height:"20px",borderRadius:"6px",background:"var(--bg-3)",display:"grid",placeItems:"center",fontSize:"11px",fontWeight:"700"}, text:String(i+1) }),
-            el("span", { class:"nm", text:b.name }),
-            el("div", { class:"reorder" }, [
-              el("button",{html:"▲",title:"Up",disabled:i===0?"":null,onClick:()=>{ [chosen[i-1],chosen[i]]=[chosen[i],chosen[i-1]]; render(); }}),
-              el("button",{html:"▼",title:"Down",disabled:i===chosenBoards.length-1?"":null,onClick:()=>{ [chosen[i+1],chosen[i]]=[chosen[i],chosen[i+1]]; render(); }}),
-            ]),
-            el("button",{class:"icon-btn",html:"✕",title:"Remove",onClick:()=>{ chosen=chosen.filter(x=>x!==b.id); render(); }}),
-          ]));
-        });
-        if (!available.length) right.appendChild(el("div",{class:"sc-empty-boards",text:"All boards added."}));
-        available.forEach(b => {
-          right.appendChild(el("div", { class:"pick-row" }, [
-            el("span", { class:"nm", text:b.name }),
-            el("span", { class:"ct", text:`${(b.categories||[]).length} cats` }),
-            el("button",{class:"icon-btn",html:"＋",title:"Add",onClick:()=>{ chosen.push(b.id); render(); }}),
-          ]));
-        });
-      };
-
-      const left = el("div", { class:"pick-list" });
-      const right = el("div", { class:"pick-list" });
-      const body = el("div", { class:"picker" }, [
-        el("div", {}, [ el("h4",{text:"In this session (in order)"}), left ]),
-        el("div", {}, [ el("h4",{text:"Available boards"}), right ]),
-      ]);
-      render();
-
-      const save = el("button", { class:"btn primary", text:"Save session" });
-      const m = modal({ title:`Edit · ${session.name}`, wide:true, body, actions:[
-        el("button",{class:"btn ghost",text:"Cancel",onClick:()=>m.close()}),
-        save,
-      ]});
-      save.addEventListener("click", ()=>{ SessionRepo.setBoards(session.id, chosen); m.close(); toast("Session saved"); });
-    }
-
-    async function newSession() {
-      const name = await promptDialog({ title:"New session", label:"Session name", value:"Untitled Session", confirmText:"Create" });
-      if (!name) return;
-      const s = SessionRepo.create({ name });
-      editSession(s);
-    }
-
-    function render() {
-      const list = SessionRepo.list().sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
-      content.innerHTML = "";
-      if (!list.length) {
-        content.appendChild(el("div",{class:"empty"},[
-          el("div",{class:"big",text:"🎯"}),
-          el("div",{html:"<strong>No sessions yet</strong>"}),
-          el("p",{text:"A session is a running order of boards — perfect for a whole night of trivia."}),
-          el("button",{class:"btn primary",text:"＋ New Session",style:{marginTop:"12px"},onClick:newSession}),
-        ]));
-        return;
-      }
-      const grid = el("div",{class:"session-list"});
-      list.forEach((s,i)=>{ const c=sessionCard(s); c.classList.add("fade"); c.style.animationDelay=`${Math.min(i*0.04,0.3)}s`; grid.appendChild(c); });
-      content.appendChild(grid);
-    }
-
-    document.getElementById("newSession").addEventListener("click", newSession);
-    SessionRepo.subscribe(render);
-    BoardRepo.subscribe(render);
-    ensureSeeded().then(render);
-    render();
-
-    document.head.appendChild(el("style",{html:`
-      .popmenu{min-width:180px;padding:6px;display:flex;flex-direction:column;gap:2px;box-shadow:var(--shadow-3)}
-      .popmenu-item{text-align:left;background:none;border:none;color:var(--text-0);font:inherit;font-weight:600;font-size:14px;padding:9px 11px;border-radius:9px;cursor:pointer}
-      .popmenu-item:hover{background:var(--bg-3)}
-      .popmenu-item.danger{color:var(--bad)}
-    `}));
+    mountSessions(document.getElementById("panel"));
   </script>
 </body>
 </html>

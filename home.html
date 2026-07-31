@@ -78,7 +78,8 @@
         box-shadow: inset 0 1px 0 rgba(255,255,255,.2); transition: filter var(--dur); }
   .game-card.available:hover .go { filter: brightness(1.08); }
 
-  /* per-game settings — the screens that belong to this game and nothing else */
+  /* per-game settings — takes you straight to settings.html?game=…, its own
+     page with every screen that belongs to this game and nothing else */
   .gear { width: 34px; height: 34px; flex: none; display: grid; place-items: center;
           font-size: 16px; line-height: 1; cursor: pointer; border-radius: 12px;
           background: var(--bg-3); border: 1px solid var(--line); color: var(--text-1);
@@ -86,18 +87,6 @@
   .gear:hover { color: var(--text-0); background: color-mix(in srgb, var(--g1) 22%, var(--bg-3));
                 border-color: color-mix(in srgb, var(--g1) 55%, var(--line)); transform: rotate(35deg); }
   .gear:focus-visible { outline: none; box-shadow: var(--ring); }
-  .gear.open { color: var(--text-0); background: color-mix(in srgb, var(--g1) 28%, var(--bg-3)); }
-
-  .popmenu { position: fixed; z-index: 150; min-width: 244px; padding: 7px;
-             display: flex; flex-direction: column; gap: 2px; box-shadow: var(--shadow-3); }
-  .popmenu-head { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-                  color: var(--text-2); padding: 7px 10px 5px; }
-  .popmenu-item { display: flex; align-items: flex-start; gap: 10px; text-align: left;
-                  padding: 9px 10px; border-radius: 10px; color: var(--text-0); }
-  .popmenu-item:hover { background: var(--bg-3); }
-  .popmenu-item .pm-glyph { font-size: 15px; line-height: 1.3; }
-  .popmenu-item .pm-label { font-weight: 600; font-size: 14px; }
-  .popmenu-item .pm-hint { color: var(--text-2); font-size: 12px; margin-top: 1px; }
 
   .foot { text-align: center; color: var(--text-2); font-size: 13px; padding: 30px 0 50px; }
 </style>
@@ -139,7 +128,7 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { GAMES } from "./platform/core/games.js";
+    import { GAMES, settingsUrl } from "./platform/core/games.js";
     import { BoardRepo, SessionRepo } from "./platform/core/repos.js";
     import { ensureSeeded } from "./platform/core/seed.js";
     import { PuzzleRepo, WheelSessionRepo } from "./platform/core/wheel.js";
@@ -178,66 +167,7 @@
       return mine.length ? `${g.console}&session=${mine[0].id}` : g.console;
     }
 
-    /* ---- per-game settings menu ----
-       Built from the game's own `pages`, so it can only ever offer screens that
-       belong to that game — and a new game arrives with its menu already filled. */
-    let popEl = null, popGear = null;
-
-    function openGameMenu(game, gear) {
-      if (popGear === gear) { closePop(); return; }      // second click closes it
-      closePop();
-
-      const menu = document.createElement("div");
-      menu.className = "popmenu card";
-      menu.innerHTML = `<div class="popmenu-head">${game.name}</div>` +
-        (game.pages || []).map((p) => `
-          <a class="popmenu-item" href="${p.href}">
-            <span class="pm-glyph">${p.glyph}</span>
-            <span>
-              <div class="pm-label">${p.label}</div>
-              <div class="pm-hint">${p.hint}</div>
-            </span>
-          </a>`).join("");
-      menu.addEventListener("click", (e) => e.stopPropagation());
-      document.body.appendChild(menu);
-
-      // Anchor to the gear, then nudge back inside the viewport if it would spill.
-      const r = gear.getBoundingClientRect();
-      const box = menu.getBoundingClientRect();
-      const left = Math.max(12, Math.min(r.right - box.width, innerWidth - box.width - 12));
-      const below = r.bottom + 8;
-      menu.style.left = `${left}px`;
-      menu.style.top = `${below + box.height > innerHeight - 12 ? Math.max(12, r.top - box.height - 8) : below}px`;
-
-      popEl = menu;
-      popGear = gear;
-      gear.classList.add("open");
-      gear.setAttribute("aria-expanded", "true");
-      setTimeout(() => {
-        document.addEventListener("mousedown", onDocDown);
-        document.addEventListener("keydown", onKey);
-      }, 0);
-    }
-
-    function closePop() {
-      if (!popEl) return;
-      popEl.remove();
-      popEl = null;
-      if (popGear) {
-        popGear.classList.remove("open");
-        popGear.setAttribute("aria-expanded", "false");
-        popGear = null;
-      }
-      document.removeEventListener("mousedown", onDocDown);
-      document.removeEventListener("keydown", onKey);
-    }
-    function onDocDown(e) { if (popEl && !popEl.contains(e.target) && e.target !== popGear) closePop(); }
-    function onKey(e) { if (e.key === "Escape") closePop(); }
-    // A re-render throws away the gear the menu was anchored to.
-    addEventListener("resize", closePop);
-
     function render() {
-      closePop();
       const heroBtn = document.getElementById("heroConsole");
       if (heroBtn) heroBtn.href = consoleUrl(GAMES.find(g => g.key === "jeopardy"));
       const heroWheel = document.getElementById("heroWheel");
@@ -274,21 +204,21 @@
             ${available
               ? `<span class="stat">${src ? src.noun(nItems) : ""} · ${nSessions} session${nSessions === 1 ? "" : "s"}</span>
                  <span class="game-acts">
-                   ${pages.length ? `<button class="gear" aria-haspopup="true" aria-expanded="false"
-                      title="${g.name} settings" aria-label="${g.name} settings">⚙</button>` : ""}
+                   ${pages.length ? `<a class="gear" href="${settingsUrl(g.key)}"
+                      title="${g.name} settings" aria-label="${g.name} settings">⚙</a>` : ""}
                    <a class="go" href="${consoleUrl(g)}">Open ▸</a>
                  </span>`
               : `<span class="stat">On the roadmap</span>`}
           </div>`;
 
         if (available) {
-          // The whole card stays clickable, but not through the gear or its menu.
+          // The whole card is clickable and launches the console, but the gear
+          // and "Open" links are real anchors with their own destination — let
+          // them navigate on their own rather than fighting the card's handler.
           el.addEventListener("click", (e) => {
-            if (e.target.closest(".gear, .popmenu, .go")) return;
+            if (e.target.closest(".gear, .go")) return;
             location.href = consoleUrl(g);
           });
-          const gear = el.querySelector(".gear");
-          if (gear) gear.addEventListener("click", (e) => { e.stopPropagation(); openGameMenu(g, gear); });
         }
         grid.appendChild(el);
       });
