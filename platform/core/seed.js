@@ -5,9 +5,10 @@
 // create a default "Trivia Night" session that references them, matching how the
 // console has always played board1 → board2.
 
-import { boards, sessions, settings } from "./repos.js";
+import { boards, sessions, settings, migrateEmbeddedBoardsToCategories } from "./repos.js";
 import { importBoardFromUrl } from "./board-import.js";
 import { makeSession } from "./models.js";
+import { flush } from "./store.js";
 
 const LEGACY_BOARDS = [
   { url: "board1.html", name: "Trivia Night — Board 1" },
@@ -19,6 +20,11 @@ const LEGACY_BOARDS = [
  * @returns {Promise<{seeded:boolean, boards:number}>}
  */
 export async function ensureSeeded() {
+  // Cheap no-op once every board has been split into categories; must run
+  // regardless of the seededV1 short-circuit below, since that guard is about
+  // first-run *import*, not this later model upgrade.
+  migrateEmbeddedBoardsToCategories();
+
   const s = settings.get() || {};
   if (s.seededV1 && boards.count() > 0) {
     return { seeded: false, boards: boards.count() };
@@ -47,6 +53,7 @@ export async function ensureSeeded() {
   }
 
   settings.set({ ...s, seededV1: true });
+  await flush(); // guarantee the seeded records + flag land before any caller navigates away
   return { seeded: true, boards: imported.length };
 }
 

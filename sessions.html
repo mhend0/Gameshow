@@ -4,6 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sessions · Game Show Studio</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="platform/ui/pwa.js" defer></script>
 <link rel="stylesheet" href="platform/ui/theme.css" />
 <style>
   .page-head { display:flex; align-items:flex-end; gap:16px; margin:28px 0 20px; flex-wrap:wrap; }
@@ -17,7 +27,6 @@
     <div class="page-head">
       <div>
         <h1>Sessions</h1>
-        <div class="sub">Plan a run of boards — a session references boards, so one board can be reused across many sessions.</div>
       </div>
     </div>
     <div id="panel"></div>
@@ -33,7 +42,7 @@
     document.getElementById("topbar").replaceWith(
       topbar({ active: "Sessions", links: [
         { href: "home.html", label: "Home" },
-        { href: "boards.html", label: "Boards" },
+        { href: "boards.html", label: "Categories" },
         { href: "sessions.html", label: "Sessions" },
       ], right: [
         el("a", { class: "btn primary sm", href: "index.html?screen=control", text: "▶ Open Console" }),

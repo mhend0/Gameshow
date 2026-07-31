@@ -32,15 +32,26 @@ export const SCHEMA_VERSION = 1;
  * @property {number} value       Point value.
  * @property {RichContent} prompt   Shown to the room first.
  * @property {RichContent} response Revealed correct response.
- * @property {boolean} dailyDouble
  * @property {number} [difficulty]  Optional 1–5.
  * @property {string} [notes]       Optional host notes.
  *
+ * A category is a standalone library entry — the same category can be reused
+ * across many generated boards, so Daily Double placement is NOT part of it
+ * (see Board.dailyDoubles below).
  * @typedef {Object} Category
  * @property {string} id
+ * @property {string} gameKey
  * @property {string} name
  * @property {Clue[]} clues       Ordered by ascending value.
- * @property {string} [notes]
+ * @property {CategoryMeta} meta
+ * @property {number} schemaVersion
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ *
+ * @typedef {Object} CategoryMeta
+ * @property {string[]} tags
+ * @property {boolean} favourite
+ * @property {string} notes
  *
  * @typedef {Object} BoardMeta
  * @property {string[]} tags
@@ -48,11 +59,21 @@ export const SCHEMA_VERSION = 1;
  * @property {number} [difficulty]  Optional 1–5 overall.
  * @property {string} notes
  *
+ * @typedef {Object} DailyDoubleSpot
+ * @property {number} col   Category column index on the board.
+ * @property {number} row   Value row index within that category.
+ *
+ * A board is a generated shell, not a library entry: it references categories
+ * by id (so the same category can appear on many boards) and carries its own
+ * Daily Double placement. `BoardRepo.get`/`resolve` hydrate it into the full
+ * `{...board, categories:[...]}` shape the legacy console and board-view.js
+ * expect, with each Daily Double's `clue.dailyDouble` set at hydration time.
  * @typedef {Object} Board
  * @property {string} id
  * @property {string} gameKey     Which game this board belongs to (e.g. "jeopardy").
  * @property {string} name
- * @property {Category[]} categories
+ * @property {string[]} categoryIds   Ordered references into the category store.
+ * @property {DailyDoubleSpot[]} dailyDoubles
  * @property {BoardMeta} meta
  * @property {number} schemaVersion
  * @property {string} createdAt   ISO string.
@@ -97,25 +118,38 @@ export function makeMediaRef({ kind = "image", assetId, src, alt = "" } = {}) {
 }
 
 /** @returns {Clue} */
-export function makeClue({ value = 100, prompt, response, dailyDouble = false, difficulty, notes } = {}) {
+export function makeClue({ value = 100, prompt, response, difficulty, notes } = {}) {
   return {
     id: newId("clue"),
     value,
     prompt: prompt || makeRichContent(),
     response: response || makeRichContent(),
-    dailyDouble: !!dailyDouble,
     ...(difficulty != null ? { difficulty } : {}),
     ...(notes ? { notes } : {}),
   };
 }
 
+/** @returns {CategoryMeta} */
+export function makeCategoryMeta(partial = {}) {
+  return {
+    tags: partial.tags || [],
+    favourite: !!partial.favourite,
+    notes: partial.notes || "",
+  };
+}
+
 /** @returns {Category} */
-export function makeCategory({ name = "New Category", clues, notes } = {}) {
+export function makeCategory({ name = "New Category", gameKey = "jeopardy", clues, meta } = {}) {
+  const ts = nowIso();
   return {
     id: newId("cat"),
+    gameKey,
     name,
     clues: clues || [],
-    ...(notes ? { notes } : {}),
+    meta: makeCategoryMeta(meta),
+    schemaVersion: SCHEMA_VERSION,
+    createdAt: ts,
+    updatedAt: ts,
   };
 }
 
@@ -129,14 +163,20 @@ export function makeBoardMeta(partial = {}) {
   };
 }
 
+/** @returns {DailyDoubleSpot} */
+export function makeDailyDoubleSpot({ col = 0, row = 0 } = {}) {
+  return { col: Math.max(0, Math.round(col)), row: Math.max(0, Math.round(row)) };
+}
+
 /** @returns {Board} */
-export function makeBoard({ name = "Untitled Board", gameKey = "jeopardy", categories, meta } = {}) {
+export function makeBoard({ name = "Untitled Board", gameKey = "jeopardy", categoryIds, dailyDoubles, meta } = {}) {
   const ts = nowIso();
   return {
     id: newId("board"),
     gameKey,
     name,
-    categories: categories || [],
+    categoryIds: categoryIds || [],
+    dailyDoubles: dailyDoubles || [],
     meta: makeBoardMeta(meta),
     schemaVersion: SCHEMA_VERSION,
     createdAt: ts,
@@ -171,20 +211,13 @@ export function makeAsset({ kind = "image", name = "asset", mime = "", size = 0 
   };
 }
 
-/**
- * Standard build of an empty Jeopardy board: N categories × M values.
- * Values follow the classic 100…500 ladder scaled to the requested rows.
- * @returns {Board}
- */
-export function makeEmptyJeopardyBoard({ name = "Untitled Board", categories = 5, rows = 5, baseValue = 100 } = {}) {
-  const cats = Array.from({ length: categories }, (_, c) => {
-    const clues = Array.from({ length: rows }, (_, r) => makeClue({ value: baseValue * (r + 1) }));
-    return makeCategory({ name: `Category ${c + 1}`, clues });
-  });
-  return makeBoard({ name, categories: cats });
+/** Standard ladder of clues for a fresh category: N values, 100…500 scaled. */
+export function makeClueLadder({ rows = 5, baseValue = 100 } = {}) {
+  return Array.from({ length: rows }, (_, r) => makeClue({ value: baseValue * (r + 1) }));
 }
 
-/** Total number of clues on a board (used for progress + validation). */
+/** Total number of clues on a *hydrated* board (one whose categories have been
+ *  resolved via BoardRepo.get/resolve — see the Board typedef above). */
 export function boardClueCount(board) {
   return (board.categories || []).reduce((n, c) => n + (c.clues ? c.clues.length : 0), 0);
 }

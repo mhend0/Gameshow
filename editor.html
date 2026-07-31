@@ -4,6 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Editor · Game Show Studio</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="platform/ui/pwa.js" defer></script>
 <link rel="stylesheet" href="platform/ui/theme.css" />
 <style>
   body { overflow-x: hidden; }
@@ -90,22 +100,20 @@
 </head>
 <body>
   <div class="ed-top">
-    <a class="btn ghost sm" href="boards.html">‹ Boards</a>
+    <a class="btn ghost sm" href="boards.html">‹ Categories</a>
     <input class="board-name" id="boardName" />
     <span class="save-badge" id="saveBadge"><span class="dot"></span><span id="saveText">Saved</span></span>
     <span class="spacer"></span>
-    <span class="muted" id="storageInfo" title="Media storage used by all your boards"></span>
+    <span class="muted" id="storageInfo" title="Media storage used by your whole library"></span>
     <button class="btn sm" id="shrinkBtn" title="Resize stored photos to free up space">🗜 Free up space</button>
-    <button class="btn sm" id="settingsBtn">⚙ Board settings</button>
+    <button class="btn sm" id="settingsBtn">⚙ Category settings</button>
     <button class="btn sm" id="previewBtn">👁 Preview</button>
-    <button class="btn primary sm" id="playBtn">▶ Play</button>
   </div>
 
   <main class="ed-body">
     <div class="ed-structure">
-      <button class="btn sm" id="addCat">＋ Category</button>
-      <button class="btn sm" id="addRow">＋ Row</button>
-      <button class="btn sm ghost" id="removeRow">－ Row</button>
+      <button class="btn sm" id="addRow">＋ Clue</button>
+      <button class="btn sm ghost" id="removeRow">－ Clue</button>
       <span class="muted" id="structInfo"></span>
     </div>
     <div class="ed-board" id="board"></div>
@@ -117,8 +125,8 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { BoardRepo } from "./platform/core/repos.js";
-    import { makeClue, makeCategory, richIsEmpty } from "./platform/core/models.js";
+    import { CategoryRepo } from "./platform/core/repos.js";
+    import { makeClue, richIsEmpty } from "./platform/core/models.js";
     import { AssetService, assetStorageUsage } from "./platform/core/assets.js";
     import { ready } from "./platform/core/store.js";
     import { renderBoardGrid } from "./platform/ui/board-view.js";
@@ -126,11 +134,11 @@
     await ready;
 
     const params = new URLSearchParams(location.search);
-    const boardId = params.get("id");
-    let board = boardId ? BoardRepo.get(boardId) : null;
-    if (!board) { document.body.innerHTML = errorScreen(); throw new Error("Board not found"); }
+    const categoryId = params.get("category");
+    let category = categoryId ? CategoryRepo.get(categoryId) : null;
+    if (!category) { document.body.innerHTML = errorScreen(); throw new Error("Category not found"); }
 
-    let selected = null; // {catIndex, row}
+    let selected = null; // row index into category.clues
     const boardEl = document.getElementById("board");
     const nameEl = document.getElementById("boardName");
 
@@ -144,7 +152,7 @@
       markSaving();
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
-        BoardRepo.save(board);
+        CategoryRepo.save(category);
         const b = document.getElementById("saveBadge");
         b.classList.remove("saving"); document.getElementById("saveText").textContent = "Saved";
       }, 350);
@@ -152,48 +160,31 @@
     }
 
     /* ---------- helpers ---------- */
-    const maxRows = () => board.categories.reduce((m, c) => Math.max(m, c.clues.length), 0);
-    const rowValue = (r) => {
-      // dominant value at row r, else laddered
-      const vals = board.categories.map(c => c.clues[r]?.value).filter(Boolean);
-      if (vals.length) return vals.sort((a,b)=>vals.filter(v=>v===a).length-vals.filter(v=>v===b).length).pop();
-      return (r + 1) * 100;
-    };
+    const maxRows = () => category.clues.length;
+    const rowValue = (r) => category.clues[r]?.value || (r + 1) * 100;
 
-    /* ---------- board render ---------- */
+    /* ---------- clue ladder render (a single column — a category has no board of its own) ---------- */
     function renderBoard() {
       const rows = Math.max(maxRows(), 1);
-      document.getElementById("structInfo").textContent =
-        `${board.categories.length} categories · ${rows} rows · ${BoardRepo.clueCount(board)} clues`;
-      boardEl.style.gridTemplateColumns = `repeat(${board.categories.length || 1}, minmax(150px, 1fr))`;
+      document.getElementById("structInfo").textContent = `${rows} clue${rows === 1 ? "" : "s"}`;
+      boardEl.style.gridTemplateColumns = "minmax(150px, 320px)";
       boardEl.innerHTML = "";
 
-      board.categories.forEach((cat, ci) => {
-        const col = el("div", { class: "ed-col" });
-        const head = el("div", { class: "cat-head" });
-        const input = el("textarea", { class: "cat-input", rows: 2, value: cat.name });
-        input.addEventListener("input", () => { cat.name = input.value; scheduleNameCommit(); });
-        input.addEventListener("blur", () => commit(false));
-        const rm = el("button", { class: "cat-remove", html: "✕", title: "Remove category",
-          onClick: async () => { if (await confirmDialog({ title: "Remove category?", message: `“${cat.name}” and its ${cat.clues.length} clues will be removed.`, confirmText: "Remove", danger: true })) { board.categories.splice(ci, 1); commit(); } } });
-        head.append(input, rm);
-        col.appendChild(head);
-
-        for (let r = 0; r < rows; r++) {
-          let clue = cat.clues[r];
-          if (!clue) { clue = makeClue({ value: rowValue(r) }); cat.clues[r] = clue; }
-          const empty = richIsEmpty(clue.prompt) && richIsEmpty(clue.response);
-          const isSel = selected && selected.catIndex === ci && selected.row === r;
-          const tile = el("div", { class: `clue-tile ${empty ? "empty" : ""} ${clue.dailyDouble ? "dd" : ""} ${isSel ? "selected" : ""}` }, [
-            el("span", { class: "val", text: String(clue.value) }),
-            el("span", { class: "snippet", text: snippet(clue) }),
-            el("span", { class: "marks", html: `${clue.dailyDouble ? "⭐" : ""}${hasMedia(clue) ? "🖼" : ""}` }),
-          ]);
-          tile.addEventListener("click", () => openInspector(ci, r));
-          col.appendChild(tile);
-        }
-        boardEl.appendChild(col);
-      });
+      const col = el("div", { class: "ed-col" });
+      for (let r = 0; r < rows; r++) {
+        let clue = category.clues[r];
+        if (!clue) { clue = makeClue({ value: rowValue(r) }); category.clues[r] = clue; }
+        const empty = richIsEmpty(clue.prompt) && richIsEmpty(clue.response);
+        const isSel = selected === r;
+        const tile = el("div", { class: `clue-tile ${empty ? "empty" : ""} ${isSel ? "selected" : ""}` }, [
+          el("span", { class: "val", text: String(clue.value) }),
+          el("span", { class: "snippet", text: snippet(clue) }),
+          el("span", { class: "marks", html: hasMedia(clue) ? "🖼" : "" }),
+        ]);
+        tile.addEventListener("click", () => openInspector(r));
+        col.appendChild(tile);
+      }
+      boardEl.appendChild(col);
     }
 
     const snippet = (clue) => (clue.prompt?.text || clue.response?.text || "").slice(0, 60);
@@ -203,20 +194,13 @@
     function scheduleNameCommit() { clearTimeout(nameCommitTimer); nameCommitTimer = setTimeout(() => commit(false), 400); }
 
     /* ---------- inspector drawer ---------- */
-    function openInspector(ci, r) {
-      selected = { catIndex: ci, row: r };
-      const cat = board.categories[ci];
-      const clue = cat.clues[r];
+    function openInspector(r) {
+      selected = r;
+      const clue = category.clues[r];
       const drawer = document.getElementById("drawer");
 
       const valueInput = el("input", { class: "input", type: "number", value: clue.value, min: 0, step: 100 });
       valueInput.addEventListener("input", () => { clue.value = parseInt(valueInput.value, 10) || 0; commit(); });
-
-      const ddToggle = el("div", { class: `toggle ${clue.dailyDouble ? "on" : ""}` }, [
-        el("div", { class: "sw" }),
-        el("div", { class: "lbl", html: "Daily Double<small>Wager round with a reveal animation</small>" }),
-      ]);
-      ddToggle.addEventListener("click", () => { clue.dailyDouble = !clue.dailyDouble; ddToggle.classList.toggle("on", clue.dailyDouble); commit(); });
 
       const diffSelect = el("select", { class: "input" },
         [["", "—"], [1, "★ Easy"], [2, "★★"], [3, "★★★ Medium"], [4, "★★★★"], [5, "★★★★★ Hard"]].map(([v, l]) =>
@@ -229,7 +213,7 @@
       drawer.innerHTML = "";
       drawer.append(
         el("div", { class: "drawer-head" }, [
-          el("h3", { text: `${cat.name || "Category"} · ${clue.value}` }),
+          el("h3", { text: `${category.name || "Category"} · ${clue.value}` }),
           el("span", { class: "spacer", style: { flex: 1 } }),
           el("button", { class: "btn icon ghost", html: "✕", onClick: closeInspector }),
         ]),
@@ -237,11 +221,10 @@
           field("Clue (shown to the room)", richEditor(clue, "prompt")),
           field("Correct response (revealed)", richEditor(clue, "response")),
           el("div", { class: "row" }, [ field("Value", valueInput), field("Difficulty", diffSelect) ]),
-          ddToggle,
           field("Notes", notesInput),
         ]),
         el("div", { class: "drawer-foot" }, [
-          el("button", { class: "btn danger sm", text: "Clear clue", onClick: () => { cat.clues[r] = makeClue({ value: clue.value }); commit(); openInspector(ci, r); } }),
+          el("button", { class: "btn danger sm", text: "Clear clue", onClick: () => { category.clues[r] = makeClue({ value: clue.value }); commit(); openInspector(r); } }),
           el("span", { style: { flex: 1 } }),
           el("button", { class: "btn sm", text: "Done", onClick: closeInspector }),
         ]),
@@ -370,73 +353,61 @@
     updateStorageInfo();
 
     /* ---------- structure ops ---------- */
-    document.getElementById("addCat").addEventListener("click", () => {
-      const rows = Math.max(maxRows(), 5);
-      const clues = Array.from({ length: rows }, (_, r) => makeClue({ value: rowValue(r) }));
-      board.categories.push(makeCategory({ name: `Category ${board.categories.length + 1}`, clues }));
-      commit();
-    });
     document.getElementById("addRow").addEventListener("click", () => {
       const r = maxRows();
-      const v = (r + 1) * (rowValue(0) || 100);
-      board.categories.forEach(c => c.clues[r] = makeClue({ value: v }));
+      const v = (r + 1) * (category.clues[0]?.value || 100);
+      category.clues[r] = makeClue({ value: v });
       commit();
     });
     document.getElementById("removeRow").addEventListener("click", async () => {
       const r = maxRows() - 1;
       if (r < 0) return;
-      if (await confirmDialog({ title: "Remove last row?", message: "The bottom row of clues across all categories will be removed.", confirmText: "Remove", danger: true })) {
-        board.categories.forEach(c => c.clues.splice(r, 1));
+      if (await confirmDialog({ title: "Remove last clue?", message: "The bottom clue of this category's ladder will be removed.", confirmText: "Remove", danger: true })) {
+        category.clues.splice(r, 1);
         commit();
       }
     });
 
     /* ---------- name, settings, preview ---------- */
-    nameEl.value = board.name;
-    nameEl.addEventListener("input", () => { board.name = nameEl.value; scheduleNameCommit(); });
+    nameEl.value = category.name;
+    nameEl.addEventListener("input", () => { category.name = nameEl.value; scheduleNameCommit(); });
     nameEl.addEventListener("blur", () => commit(false));
 
     document.getElementById("previewBtn").addEventListener("click", () => {
       const closeBtn = el("button", { class: "btn ghost", text: "Close" });
-      const m = modal({ title: `Preview · ${board.name}`, wide: true, body: renderBoardGrid(board, { showDailyDouble: true }), actions: [closeBtn] });
+      // renderBoardGrid expects a board — a single-category board is a valid,
+      // honest preview of how this category will look once it's on one.
+      const m = modal({ title: `Preview · ${category.name}`, wide: true, body: renderBoardGrid({ categories: [category] }), actions: [closeBtn] });
       closeBtn.addEventListener("click", () => m.close());
-    });
-
-    document.getElementById("playBtn").addEventListener("click", () => {
-      location.href = `index.html?screen=control&board=${board.id}`;
     });
 
     document.getElementById("settingsBtn").addEventListener("click", openSettings);
     function openSettings() {
-      const tags = el("input", { class: "input", value: (board.meta.tags || []).join(", "), placeholder: "e.g. bible, movies, music" });
-      const notes = el("textarea", { class: "input", value: board.meta.notes || "", placeholder: "Notes about this board…" });
-      const diff = el("select", { class: "input" },
-        [["", "—"], [1, "★ Easy"], [2, "★★"], [3, "★★★ Medium"], [4, "★★★★"], [5, "★★★★★ Hard"]].map(([v, l]) =>
-          el("option", { value: v, ...(String(board.meta.difficulty ?? "") === String(v) ? { selected: "" } : {}) }, [l])));
-      const fav = el("div", { class: `toggle ${board.meta.favourite ? "on" : ""}` }, [el("div", { class: "sw" }), el("div", { class: "lbl", text: "Favourite" })]);
-      fav.addEventListener("click", () => { board.meta.favourite = !board.meta.favourite; fav.classList.toggle("on", board.meta.favourite); });
+      const tags = el("input", { class: "input", value: (category.meta.tags || []).join(", "), placeholder: "e.g. bible, movies, music" });
+      const notes = el("textarea", { class: "input", value: category.meta.notes || "", placeholder: "Notes about this category…" });
+      const fav = el("div", { class: `toggle ${category.meta.favourite ? "on" : ""}` }, [el("div", { class: "sw" }), el("div", { class: "lbl", text: "Favourite" })]);
+      fav.addEventListener("click", () => { category.meta.favourite = !category.meta.favourite; fav.classList.toggle("on", category.meta.favourite); });
 
       const save = el("button", { class: "btn primary", text: "Save settings" });
       const m = modal({
-        title: "Board settings",
+        title: "Category settings",
         body: el("div", { style: { display: "flex", flexDirection: "column", gap: "16px" } }, [
-          field("Tags (comma-separated)", tags), field("Difficulty", diff), field("Notes", notes), fav,
+          field("Tags (comma-separated)", tags), field("Notes", notes), fav,
         ]),
         actions: [el("button", { class: "btn ghost", text: "Cancel", onClick: () => m.close() }), save],
       });
       save.addEventListener("click", () => {
-        board.meta.tags = tags.value.split(",").map(s => s.trim()).filter(Boolean);
-        board.meta.notes = notes.value;
-        if (diff.value) board.meta.difficulty = Number(diff.value); else delete board.meta.difficulty;
+        category.meta.tags = tags.value.split(",").map(s => s.trim()).filter(Boolean);
+        category.meta.notes = notes.value;
         commit(false); m.close(); toast("Settings saved");
       });
     }
 
     function errorScreen() {
       return `<div style="max-width:520px;margin:16vh auto;text-align:center;font-family:var(--font);color:#fff">
-        <div style="font-size:44px">🕳️</div><h1>Board not found</h1>
-        <p style="color:#7d879e">This board may have been deleted.</p>
-        <a href="boards.html" style="display:inline-block;margin-top:14px;color:#3b6fff">‹ Back to Boards</a></div>`;
+        <div style="font-size:44px">🕳️</div><h1>Category not found</h1>
+        <p style="color:#7d879e">This category may have been deleted.</p>
+        <a href="boards.html" style="display:inline-block;margin-top:14px;color:#3b6fff">‹ Back to Categories</a></div>`;
     }
 
     renderBoard();

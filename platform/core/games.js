@@ -44,10 +44,10 @@ export const GAMES = [
     status: "available",
     console: "index.html?screen=control",
     pages: [
-      { key: "boards", href: "boards.html", label: "Boards", glyph: "🎛️",
-        hint: "Categories, clues and Daily Doubles", panel: "boards-panel.js#mountBoards" },
+      { key: "boards", href: "boards.html", label: "Categories", glyph: "🎛️",
+        hint: "Categories and their clue ladders", panel: "boards-panel.js#mountBoards" },
       { key: "sessions", href: "sessions.html", label: "Sessions", glyph: "🎯",
-        hint: "Which boards play, and in what order", panel: "sessions-panel.js#mountSessions" },
+        hint: "Assemble boards from categories, and set the order", panel: "sessions-panel.js#mountSessions" },
     ],
   },
   {

@@ -16,11 +16,20 @@
 //   • migrated once   — on first boot, any existing `gsp:` localStorage data is
 //                        copied into IndexedDB and consumed. The localStorage
 //                        copy itself is left in place (untouched) as a fallback.
+//   • mirrored back    — every collection write also re-serialises the same
+//                        `gsp:<name>` localStorage key the old localStorage-only
+//                        store used (an object keyed by id). The legacy Jeopardy
+//                        console (index.html) is a classic, non-module script by
+//                        design (see the platform-bridge contract) and reads
+//                        session/board data straight out of localStorage; without
+//                        this mirror it would only ever see whatever existed at
+//                        the moment of the one-time migration, never anything
+//                        created since.
 //
 // Every page must `await ready` (exported below) before making its first
 // Collection/Value call — that's the one place this app waits on IndexedDB.
 
-const NS = "gsp:"; // localStorage namespace used pre-migration (read-only now)
+const NS = "gsp:"; // localStorage namespace — legacy console reads this directly
 
 const DB_NAME = "gsp";
 const DB_VERSION = 2;
@@ -135,6 +144,38 @@ const registry = new Map(); // name -> { kind: "collection", normalise } | { kin
 const recordCache = new Map(); // collection name -> Map(id -> record)
 const valueCache = new Map();  // value name -> value
 
+/** Re-serialise a collection's full in-memory map into its legacy `gsp:<name>`
+ *  localStorage key (an object keyed by id) — see the header comment. Best
+ *  effort: the platform itself never reads this back, only the legacy console. */
+function mirrorCollectionToLocalStorage(name) {
+  try {
+    const obj = {};
+    for (const [id, rec] of collectionMap(name)) obj[id] = rec;
+    localStorage.setItem(NS + name, JSON.stringify(obj));
+  } catch { /* private mode / quota — the legacy console mirror is best-effort only */ }
+}
+
+/* ------------------------------------------------------------ write tracking */
+
+// put/patch/remove/set write through to IndexedDB in the background (fire-and-
+// forget) so the rest of the app can keep treating the store as synchronous.
+// That's fine as long as the page stays open — but a `location.href` right
+// after a write can tear the page down before the transaction commits, silently
+// losing it. Every write registers its promise here so a call site that's about
+// to navigate can `await flush()` first and know the write actually landed.
+const pendingWrites = new Set();
+function track(promise) {
+  pendingWrites.add(promise);
+  const clear = () => pendingWrites.delete(promise);
+  promise.then(clear, clear);
+  return promise;
+}
+
+/** Await before navigating right after a create/save, so the write isn't lost. */
+export function flush() {
+  return Promise.all(pendingWrites);
+}
+
 function collectionMap(name) {
   let m = recordCache.get(name);
   if (!m) { m = new Map(); recordCache.set(name, m); }
@@ -224,7 +265,7 @@ async function init() {
 
   await Promise.all([...registry].map(async ([name, meta]) => {
     try {
-      if (meta.kind === "collection") await hydrateCollection(db, name);
+      if (meta.kind === "collection") { await hydrateCollection(db, name); mirrorCollectionToLocalStorage(name); }
       else await hydrateValue(db, name, meta.fallback);
     } catch (e) {
       console.error(`Failed to hydrate "${name}" from IndexedDB`, e);
@@ -274,7 +315,8 @@ export class Collection {
   put(record) {
     if (!record || !record.id) throw new Error(`${this.name}.put requires a record with an id`);
     collectionMap(this.name).set(record.id, record);
-    this._writeOne(record);
+    track(this._writeOne(record));
+    mirrorCollectionToLocalStorage(this.name);
     this._changed();
     return record;
   }
@@ -286,7 +328,8 @@ export class Collection {
     if (!cur) return null;
     const next = { ...cur, ...patch };
     map.set(id, next);
-    this._writeOne(next);
+    track(this._writeOne(next));
+    mirrorCollectionToLocalStorage(this.name);
     this._changed();
     return this.normalise(next);
   }
@@ -295,7 +338,8 @@ export class Collection {
     const map = collectionMap(this.name);
     if (map.has(id)) {
       map.delete(id);
-      this._deleteOne(id);
+      track(this._deleteOne(id));
+      mirrorCollectionToLocalStorage(this.name);
       this._changed();
     }
   }
@@ -305,7 +349,8 @@ export class Collection {
     const map = collectionMap(this.name);
     const valid = (records || []).filter((r) => r && r.id);
     for (const r of valid) map.set(r.id, r);
-    this._writeMany(valid);
+    track(this._writeMany(valid));
+    mirrorCollectionToLocalStorage(this.name);
     this._changed();
   }
 
@@ -367,7 +412,7 @@ export class Value {
   }
   set(v) {
     valueCache.set(this.name, v);
-    this._write(v);
+    track(this._write(v));
     emit(this.name);
     if (channel) channel.postMessage({ collection: this.name });
   }

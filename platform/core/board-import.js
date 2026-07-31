@@ -6,7 +6,7 @@
 // and captured as *external* media refs; a later "localise assets" pass can pull
 // them into the portable asset store.
 
-import { makeBoard, makeCategory, makeClue, makeRichContent, makeMediaRef } from "./models.js";
+import { makeBoard, makeClue, makeRichContent, makeMediaRef } from "./models.js";
 
 const DEFAULT_BASE = "https://jeopardylabs.com";
 
@@ -27,9 +27,12 @@ export function parseJeopardyLabsHtml(html, opts = {}) {
   const catCells = [...doc.querySelectorAll(".grid-row-cats .cat-cell, .grid-row-categories .cat-cell")];
   const categoryNames = catCells.map((el) => cleanText(el.textContent) || "Category");
 
-  // Build one category per column, collecting clues by column index.
-  const categories = categoryNames.map((name) => makeCategory({ name, clues: [] }));
-  if (!categories.length) return makeBoard({ name: opts.name || "Imported Board" });
+  // Build one category per column, collecting clues by column index. These stay
+  // in the transitional "embedded" shape (a plain {name, clues} literal, not a
+  // persisted CategoryRepo record) — the board below carries them as `categories`
+  // for BoardRepo's migration step to split out on first read.
+  const categories = categoryNames.map((name) => ({ name, clues: [] }));
+  if (!categories.length) return { ...makeBoard({ name: opts.name || "Imported Board" }), categories: [] };
 
   const cells = [...doc.querySelectorAll(".grid-row-questions .grid-cell")];
   for (const cell of cells) {
@@ -50,7 +53,7 @@ export function parseJeopardyLabsHtml(html, opts = {}) {
     const dailyDouble = /daily.?double/i.test(cell.className) ||
       /daily.?double/i.test((front && front.textContent) || "");
 
-    const clue = makeClue({ value, prompt, response, dailyDouble });
+    const clue = { ...makeClue({ value, prompt, response }), dailyDouble };
     clue._row = rowIndex;                                     // transient, stripped below
     categories[col].clues.push(clue);
   }
@@ -67,7 +70,7 @@ export function parseJeopardyLabsHtml(html, opts = {}) {
     for (const clue of cat.clues) delete clue._row;
   }
 
-  return makeBoard({ name: opts.name || "Imported Board", categories });
+  return { ...makeBoard({ name: opts.name || "Imported Board" }), categories };
 }
 
 /** Most common non-zero value at each row index, with a laddered fallback. */

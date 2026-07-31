@@ -1,4 +1,8 @@
-// The Jeopardy board library, as a mountable panel.
+// The Jeopardy category library, as a mountable panel.
+//
+// Categories are the library's unit of content — a name plus a clue ladder.
+// Boards are generated from categories at session-assembly time (see
+// sessions-panel.js), so this panel manages categories, not whole boards.
 //
 // Lives here rather than inside a page so the game's settings screen and the
 // standalone /boards.html URL are the same code. Mount it into any container:
@@ -6,11 +10,10 @@
 //   const panel = mountBoards(document.getElementById("host"));
 //   panel.destroy();
 
-import { BoardRepo } from "../../core/repos.js";
+import { CategoryRepo } from "../../core/repos.js";
 import { ensureSeeded } from "../../core/seed.js";
-import { renderBoardGrid } from "../board-view.js";
+import { flush } from "../../core/store.js";
 import { el, toast, modal, confirmDialog, promptDialog, timeAgo } from "../ui.js";
-import { boardClueCount } from "../../core/models.js";
 import * as boardCsv from "../../core/board-csv.js";
 import { csvToolbar } from "../csv-import.js";
 
@@ -23,7 +26,7 @@ export function mountBoards(root) {
   const state = { query: "", tag: "", favouritesOnly: false, sort: "updated" };
 
   const sub = el("div", { class: "bp-sub" });
-  const search = el("input", { placeholder: "Search boards & categories…", autocomplete: "off" });
+  const search = el("input", { placeholder: "Search categories…", autocomplete: "off" });
   const favBtn = el("button", { class: "chip", text: "★ Favourites" });
   const sortSel = el("select", { class: "input" }, [
     el("option", { value: "updated", text: "Recently updated" }),
@@ -33,8 +36,8 @@ export function mountBoards(root) {
   ]);
   const tagbar = el("div", { class: "bp-tagbar" });
   const content = el("div");
-  const newBtn = el("button", { class: "btn primary", text: "＋ New Board" });
-  const csv = csvToolbar({ mapper: boardCsv, getRecords: () => BoardRepo.list(), onChanged: render });
+  const newBtn = el("button", { class: "btn primary", text: "＋ New Category" });
+  const csv = csvToolbar({ mapper: boardCsv, getRecords: () => CategoryRepo.list(), onChanged: render });
 
   root.innerHTML = "";
   root.append(
@@ -50,59 +53,56 @@ export function mountBoards(root) {
     content,
   );
 
-  /* ---- mini preview (cheap, non-interactive) ---- */
-  function miniBoard(board) {
-    const cats = board.categories || [];
-    const cols = Math.min(cats.length, 6) || 1;
-    const rows = Math.min(cats.reduce((m, c) => Math.max(m, c.clues.length), 0), 5) || 1;
-    const wrap = el("div", { class: "mini-board", style: { gridTemplateColumns: `repeat(${cols},1fr)` } });
-    for (let c = 0; c < cols; c++) wrap.appendChild(el("div", { class: "mini-cell" }));
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) wrap.appendChild(el("div", { class: "mini-cell q" }));
+  /* ---- mini preview (cheap, non-interactive): the clue ladder as a bar chart ---- */
+  function miniCategory(cat) {
+    const clues = (cat.clues || []).slice(0, 6);
+    const max = Math.max(1, ...clues.map((c) => c.value || 0));
+    const wrap = el("div", { class: "mini-cat" });
+    clues.forEach((c) => {
+      wrap.appendChild(el("div", { class: "mini-bar", style: { width: `${Math.max(12, (100 * (c.value || 0)) / max)}%` } }));
+    });
+    if (!clues.length) wrap.appendChild(el("div", { class: "mini-bar empty" }));
     return wrap;
   }
 
-  function boardCard(board) {
+  function categoryCard(cat) {
     const accent = "#3b6fff";
-    const nCats = (board.categories || []).length;
-    const nClues = boardClueCount(board);
+    const nClues = (cat.clues || []).length;
 
     const fav = el("button", {
-      class: `fav ${board.meta?.favourite ? "on" : ""}`, html: board.meta?.favourite ? "★" : "☆", title: "Favourite",
-      onClick: (e) => { e.stopPropagation(); BoardRepo.toggleFavourite(board.id); },
+      class: `fav ${cat.meta?.favourite ? "on" : ""}`, html: cat.meta?.favourite ? "★" : "☆", title: "Favourite",
+      onClick: (e) => { e.stopPropagation(); CategoryRepo.toggleFavourite(cat.id); },
     });
 
     const card = el("div", { class: "board-card card", style: { "--accent": accent } }, [
-      el("div", { class: "bc-preview" }, [el("div", { class: "mini" }, [miniBoard(board)])]),
+      el("div", { class: "bc-preview" }, [el("div", { class: "mini" }, [miniCategory(cat)])]),
       el("div", { class: "bc-body" }, [
-        el("div", { class: "bc-title" }, [el("span", { text: board.name })]),
+        el("div", { class: "bc-title" }, [el("span", { text: cat.name })]),
         el("div", { class: "bc-meta" }, [
-          el("span", { text: `${nCats} categories` }),
+          el("span", { text: `${nClues} clue${nClues === 1 ? "" : "s"}` }),
           el("span", { text: "·" }),
-          el("span", { text: `${nClues} clues` }),
-          el("span", { text: "·" }),
-          el("span", { text: timeAgo(board.updatedAt) }),
+          el("span", { text: timeAgo(cat.updatedAt) }),
         ]),
-        (board.meta?.tags || []).length ? el("div", { class: "bc-tags" }, board.meta.tags.map((t) => el("span", { class: "bc-tag", text: t }))) : null,
+        (cat.meta?.tags || []).length ? el("div", { class: "bc-tags" }, cat.meta.tags.map((t) => el("span", { class: "bc-tag", text: t }))) : null,
         el("div", { class: "bc-actions" }, [
           fav,
           el("span", { class: "bp-spacer" }),
-          el("button", { class: "btn sm ghost", text: "Preview", onClick: (e) => { e.stopPropagation(); preview(board); } }),
-          el("button", { class: "btn sm ghost", html: "⋯", title: "More", onClick: (e) => { e.stopPropagation(); menu(board, e.currentTarget); } }),
-          el("button", { class: "btn sm primary", text: "Edit", onClick: (e) => { e.stopPropagation(); location.href = `editor.html?id=${board.id}`; } }),
+          el("button", { class: "btn sm ghost", html: "⋯", title: "More", onClick: (e) => { e.stopPropagation(); menu(cat, e.currentTarget); } }),
+          el("button", { class: "btn sm primary", text: "Edit", onClick: (e) => { e.stopPropagation(); location.href = `editor.html?category=${cat.id}`; } }),
         ]),
       ].filter(Boolean)),
     ]);
-    card.addEventListener("click", () => location.href = `editor.html?id=${board.id}`);
+    card.addEventListener("click", () => location.href = `editor.html?category=${cat.id}`);
     return card;
   }
 
   /* ---- overflow menu ---- */
-  function menu(board, anchor) {
+  function menu(cat, anchor) {
     const items = [
-      { label: "Rename", fn: async () => { const n = await promptDialog({ title: "Rename board", label: "Board name", value: board.name }); if (n) BoardRepo.rename(board.id, n); } },
-      { label: "Duplicate", fn: () => { const c = BoardRepo.duplicate(board.id); if (c) toast("Board duplicated"); } },
-      { label: "Edit tags", fn: async () => { const cur = (board.meta?.tags || []).join(", "); const n = await promptDialog({ title: "Edit tags", label: "Comma-separated tags", value: cur, placeholder: "e.g. bible, movies" }); if (n !== null) BoardRepo.setTags(board.id, n.split(",").map((s) => s.trim()).filter(Boolean)); } },
-      { label: "Delete", danger: true, fn: async () => { if (await confirmDialog({ title: "Delete board?", message: `“${board.name}” will be permanently removed.`, confirmText: "Delete", danger: true })) { BoardRepo.remove(board.id); toast("Board deleted"); } } },
+      { label: "Rename", fn: async () => { const n = await promptDialog({ title: "Rename category", label: "Category name", value: cat.name }); if (n) CategoryRepo.rename(cat.id, n); } },
+      { label: "Duplicate", fn: () => { const c = CategoryRepo.duplicate(cat.id); if (c) toast("Category duplicated"); } },
+      { label: "Edit tags", fn: async () => { const cur = (cat.meta?.tags || []).join(", "); const n = await promptDialog({ title: "Edit tags", label: "Comma-separated tags", value: cur, placeholder: "e.g. bible, movies" }); if (n !== null) CategoryRepo.setTags(cat.id, n.split(",").map((s) => s.trim()).filter(Boolean)); } },
+      { label: "Delete", danger: true, fn: async () => { if (await confirmDialog({ title: "Delete category?", message: `“${cat.name}” will be permanently removed, and dropped from any board that used it.`, confirmText: "Delete", danger: true })) { CategoryRepo.remove(cat.id); toast("Category deleted"); } } },
     ];
     const list = el("div", { class: "bp-popmenu card" }, items.map((it) =>
       el("button", { class: `bp-popmenu-item ${it.danger ? "danger" : ""}`, text: it.label, onClick: () => { closePop(); it.fn(); } })));
@@ -122,20 +122,9 @@ export function mountBoards(root) {
   function onDoc(e) { if (popEl && !popEl.contains(e.target)) closePop(); }
   function closePop() { if (popEl) { popEl.remove(); popEl = null; document.removeEventListener("mousedown", onDoc); } }
 
-  /* ---- preview modal ---- */
-  function preview(board) {
-    const grid = renderBoardGrid(board, { showDailyDouble: true });
-    const closeBtn = el("button", { class: "btn ghost", text: "Close" });
-    const m = modal({ title: board.name, body: el("div", {}, [grid]), wide: true, actions: [
-      closeBtn,
-      el("button", { class: "btn primary", text: "Edit board", onClick: () => location.href = `editor.html?id=${board.id}` }),
-    ]});
-    closeBtn.addEventListener("click", () => m.close());
-  }
-
   /* ---- filters ---- */
   function renderTags() {
-    const tags = BoardRepo.allTags();
+    const tags = CategoryRepo.allTags();
     tagbar.innerHTML = "";
     if (!tags.length) { tagbar.style.display = "none"; return; }
     tagbar.style.display = "flex";
@@ -146,42 +135,43 @@ export function mountBoards(root) {
   function render() {
     renderTags();
     favBtn.classList.toggle("active", state.favouritesOnly);
-    const list = BoardRepo.query(state);
-    const all = BoardRepo.list();
-    sub.textContent = `${all.length} board${all.length === 1 ? "" : "s"} in your library`;
+    const list = CategoryRepo.query(state);
+    const all = CategoryRepo.list();
+    sub.textContent = `${all.length} categor${all.length === 1 ? "y" : "ies"} in your library`;
 
     content.innerHTML = "";
     if (!all.length) {
       content.appendChild(el("div", { class: "empty" }, [
         el("div", { class: "big", text: "🎛️" }),
-        el("div", { html: "<strong>No boards yet</strong>" }),
-        el("p", { text: "Create your first board to get started." }),
-        el("button", { class: "btn primary", text: "＋ New Board", style: { marginTop: "12px" }, onClick: newBoard }),
+        el("div", { html: "<strong>No categories yet</strong>" }),
+        el("p", { text: "Create your first category to get started — sessions assemble boards from categories like these." }),
+        el("button", { class: "btn primary", text: "＋ New Category", style: { marginTop: "12px" }, onClick: newCategory }),
       ]));
       return;
     }
     if (!list.length) {
-      content.appendChild(el("div", { class: "empty" }, [el("div", { class: "big", text: "🔍" }), el("p", { text: "No boards match your filters." })]));
+      content.appendChild(el("div", { class: "empty" }, [el("div", { class: "big", text: "🔍" }), el("p", { text: "No categories match your filters." })]));
       return;
     }
     const grid = el("div", { class: "board-grid" });
-    list.forEach((b, i) => { const c = boardCard(b); c.classList.add("fade"); c.style.animationDelay = `${Math.min(i * 0.03, 0.3)}s`; grid.appendChild(c); });
+    list.forEach((c, i) => { const card = categoryCard(c); card.classList.add("fade"); card.style.animationDelay = `${Math.min(i * 0.03, 0.3)}s`; grid.appendChild(card); });
     content.appendChild(grid);
   }
 
-  async function newBoard() {
-    const name = await promptDialog({ title: "New board", label: "Board name", value: "Untitled Board", confirmText: "Create" });
+  async function newCategory() {
+    const name = await promptDialog({ title: "New category", label: "Category name", value: "New Category", confirmText: "Create" });
     if (!name) return;
-    const b = BoardRepo.create({ name });
-    location.href = `editor.html?id=${b.id}`;
+    const c = CategoryRepo.create({ name });
+    await flush();
+    location.href = `editor.html?category=${c.id}`;
   }
 
-  newBtn.addEventListener("click", newBoard);
+  newBtn.addEventListener("click", newCategory);
   search.addEventListener("input", (e) => { state.query = e.target.value; render(); });
   sortSel.addEventListener("change", (e) => { state.sort = e.target.value; render(); });
   favBtn.addEventListener("click", () => { state.favouritesOnly = !state.favouritesOnly; render(); });
 
-  const unsubscribe = BoardRepo.subscribe(render);
+  const unsubscribe = CategoryRepo.subscribe(render);
   ensureSeeded().then(render);
   render();
 
@@ -208,9 +198,9 @@ function ensureStyles() {
   .board-card { position:relative; display:flex; flex-direction:column; padding:0; overflow:hidden; cursor:pointer;
     transition:transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s var(--ease); }
   .board-card:hover { transform:translateY(-4px); box-shadow:var(--shadow-3); border-color:var(--line); }
-  .bc-preview { height:132px; padding:12px; background:radial-gradient(120% 120% at 0 0, color-mix(in srgb,var(--accent) 16%,transparent), transparent 60%), var(--bg-0);
+  .bc-preview { height:96px; padding:14px; background:radial-gradient(120% 120% at 0 0, color-mix(in srgb,var(--accent) 16%,transparent), transparent 60%), var(--bg-0);
     border-bottom:1px solid var(--line-soft); overflow:hidden; display:flex; align-items:center; }
-  .bc-preview .mini { transform:scale(1); width:100%; }
+  .bc-preview .mini { width:100%; }
   .bc-body { padding:15px 16px 16px; display:flex; flex-direction:column; gap:9px; flex:1; }
   .bc-title { font-size:17px; font-weight:700; letter-spacing:-.01em; display:flex; align-items:center; gap:8px; }
   .bc-meta { display:flex; align-items:center; gap:10px; color:var(--text-2); font-size:12.5px; font-weight:600; }
@@ -220,10 +210,9 @@ function ensureStyles() {
   .fav { cursor:pointer; font-size:18px; line-height:1; background:none; border:none; padding:2px; filter:grayscale(1) opacity(.5); transition:all .2s var(--ease); }
   .fav.on { filter:none; }
   .fav:hover { transform:scale(1.15); }
-  .mini-board { display:grid; gap:3px; }
-  .mini-board .mrow { display:grid; gap:3px; }
-  .mini-cell { height:11px; border-radius:3px; background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 50%,#000)); opacity:.9; }
-  .mini-cell.q { background:var(--bg-3); opacity:.7; }
+  .mini-cat { display:flex; flex-direction:column; gap:5px; width:100%; }
+  .mini-bar { height:9px; border-radius:3px; background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#000)); opacity:.9; }
+  .mini-bar.empty { width:40%; background:var(--bg-3); }
 
   .bp-popmenu { min-width:180px; padding:6px; display:flex; flex-direction:column; gap:2px; box-shadow:var(--shadow-3); }
   .bp-popmenu-item { text-align:left; background:none; border:none; color:var(--text-0); font:inherit; font-weight:600;

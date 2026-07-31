@@ -86,8 +86,8 @@ export function modal({ title = "", body, actions = [], wide = false, onClose } 
 export function confirmDialog({ title = "Are you sure?", message = "", confirmText = "Confirm", danger = false } = {}) {
   return new Promise((resolve) => {
     let m;
-    const cancel = el("button", { class: "btn ghost", text: "Cancel", onClick: () => { m.close(); resolve(false); } });
-    const ok = el("button", { class: `btn ${danger ? "danger" : "primary"}`, text: confirmText, onClick: () => { m.close(); resolve(true); } });
+    const cancel = el("button", { class: "btn ghost", text: "Cancel", onClick: () => { resolve(false); m.close(); } });
+    const ok = el("button", { class: `btn ${danger ? "danger" : "primary"}`, text: confirmText, onClick: () => { resolve(true); m.close(); } });
     m = modal({ title, body: el("p", { class: "muted", text: message, style: { margin: "2px 0 4px" } }), actions: [cancel, ok], onClose: () => resolve(false) });
     ok.focus();
   });
@@ -98,10 +98,10 @@ export function promptDialog({ title = "", label = "", value = "", confirmText =
   return new Promise((resolve) => {
     let m;
     const input = el("input", { class: "input", value, placeholder });
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { m.close(); resolve(input.value.trim() || null); } });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { resolve(input.value.trim() || null); m.close(); } });
     const field = el("label", { class: "field" }, [label ? el("span", { class: "field-label", text: label }) : null, input].filter(Boolean));
-    const cancel = el("button", { class: "btn ghost", text: "Cancel", onClick: () => { m.close(); resolve(null); } });
-    const ok = el("button", { class: "btn primary", text: confirmText, onClick: () => { m.close(); resolve(input.value.trim() || null); } });
+    const cancel = el("button", { class: "btn ghost", text: "Cancel", onClick: () => { resolve(null); m.close(); } });
+    const ok = el("button", { class: "btn primary", text: confirmText, onClick: () => { resolve(input.value.trim() || null); m.close(); } });
     m = modal({ title, body: field, actions: [cancel, ok], onClose: () => resolve(null) });
     setTimeout(() => { input.focus(); input.select(); }, 30);
   });
