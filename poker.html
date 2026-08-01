@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Texas Hold'em · TV</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<script src="platform/ui/pwa.js" defer></script>
+<link rel="stylesheet" href="platform/ui/theme.css" />
+<style>
+/* =====================================================================
+   Texas Hold'em — TV Display (the big screen).
+
+   Public information only. The table itself is platform/ui/poker-table.js;
+   this page is the surface it sits on: it finds the room, polls the server
+   for the public view of the game, and keeps the join code on screen so
+   somebody can pull out their phone and sit down mid-session.
+
+   Phase 9 adds the host console; this file already carries `?screen=` so
+   that can slot in beside the display without a second page.
+   ===================================================================== */
+body{ --accent:#0b6b3f; --accent-2:#18c29c; --gold:#ffcf5c;
+  height:100vh; overflow:hidden; display:flex; flex-direction:column;
+  background:radial-gradient(1400px 900px at 50% -25%, #0d3a24, transparent 65%), #04070c; }
+
+/* ---- top strip ------------------------------------------------------- */
+#topbar{
+  display:flex; align-items:center; gap:12px; padding:10px 18px; flex:none;
+  border-bottom:1px solid var(--line-soft);
+  background:color-mix(in srgb, var(--bg-0) 70%, transparent); backdrop-filter:blur(12px);
+}
+#topbar .brand{ font-weight:900; letter-spacing:.06em; display:flex; align-items:baseline; gap:9px; }
+#topbar .brand small{ color:var(--text-2); font-weight:700; font-size:11px; letter-spacing:.14em; }
+#topbar .spacer{ flex:1; }
+#status{ font-size:12.5px; font-weight:700; color:var(--text-2); }
+#status.live{ color:var(--good); }
+#status.down{ color:var(--bad); }
+#chipLabelBtn.on{ color:var(--gold); border-color:color-mix(in srgb, var(--gold) 45%, transparent); background:color-mix(in srgb, var(--gold) 12%, transparent); }
+body.immersive #topbar{ display:none; }
+
+/* ---- stage ----------------------------------------------------------- */
+#stage{
+  flex:1; min-height:0; display:grid; place-items:center; padding:22px;
+}
+/* The felt is 16:9 and the dealer stands above its top edge, so the box to fit
+   is taller than the table alone: padding-top reserves his headroom as a share
+   of the width (so it scales with the table), and the width cap divides the
+   available height by the combined ratio rather than by 9/16. */
+#tableWrap{
+  position:relative;
+  padding-top:6.4%;                       /* dealer overhang, in table widths */
+  width:min(100%, calc((100vh - 118px) * 1.58));
+}
+#dealerLayer{
+  position:absolute; top:0; left:50%; transform:translateX(-50%);
+  width:22%; z-index:2; pointer-events:none;
+}
+#tableHost{ position:relative; z-index:1; }
+body.immersive #stage{ padding:10px; }
+body.immersive #tableWrap{ width:min(100%, calc((100vh - 26px) * 1.58)); }
+
+/* ---- join card ------------------------------------------------------- */
+/* Deliberately compact: a nine-handed table puts real seats in the lower
+   corners, so this has to stay out of their way while still being scannable
+   from across a room. */
+#joinCard{
+  position:fixed; right:14px; bottom:14px; z-index:20;
+  display:flex; align-items:center; gap:11px; padding:9px 11px;
+  border-radius:var(--r-md); background:color-mix(in srgb, var(--bg-1) 88%, transparent);
+  border:1px solid var(--line); box-shadow:var(--shadow-3); backdrop-filter:blur(10px);
+}
+#joinCard .lbl{ font-size:9.5px; font-weight:800; letter-spacing:.16em; color:var(--text-2); text-transform:uppercase; }
+#joinCard .code{ font-size:23px; font-weight:900; letter-spacing:.12em; color:var(--gold); line-height:1.15; }
+#joinCard .url{ font-size:10.5px; color:var(--text-2); }
+#joinQR{ background:#fff; border-radius:8px; padding:5px; display:flex; }
+#joinQR canvas{ display:block; }
+
+/* ---- empty / setup states -------------------------------------------- */
+.pane{ display:flex; flex-direction:column; align-items:center; gap:18px; text-align:center; max-width:620px; }
+.pane .glyph{ font-size:64px; line-height:1; }
+.pane h1{ font-size:32px; }
+.pane p{ margin:0; color:var(--text-1); line-height:1.55; }
+.pane form{ display:flex; gap:10px; width:100%; max-width:360px; }
+.pane input{ text-align:center; text-transform:uppercase; letter-spacing:.24em; font-size:22px; font-weight:800; }
+
+/* ---- host console ----------------------------------------------------- */
+/* The control screen is a scrolling laptop page, not a fixed-height stage. */
+body[data-screen="control"]{
+  height:auto; min-height:100vh; overflow:auto; display:block;
+  background:radial-gradient(1200px 700px at 20% -10%, #0d3a24, transparent 60%), var(--bg-0);
+}
+#consoleHost{ max-width:1280px; margin:0 auto; }
+</style>
+</head>
+<body data-screen="display">
+  <div id="topbar">
+    <span class="brand">🂡 TEXAS HOLD'EM <small>TV DISPLAY</small></span>
+    <span class="spacer"></span>
+    <span id="status">Connecting…</span>
+    <button class="btn sm ghost" id="chipLabelBtn" aria-pressed="false"
+      title="Print each chip's value on its face — for anyone who finds the casino colours hard to tell apart">◑ Chip values</button>
+    <button class="btn sm ghost" id="immersiveBtn" title="Hide the chrome and fill the screen">⤢ Full screen</button>
+    <a class="btn sm ghost" id="hostLink" href="#" target="_blank" rel="noopener">🎛 Host controls</a>
+  </div>
+
+  <div id="stage">
+    <div id="tableWrap">
+      <div id="dealerLayer"></div>
+      <div id="tableHost"></div>
+    </div>
+  </div>
+
+  <div id="consoleHost" hidden></div>
+
+  <div id="joinCard" hidden>
+    <div>
+      <div class="lbl">Join at</div>
+      <div class="code" id="joinCode">—</div>
+      <div class="url" id="joinUrl"></div>
+    </div>
+    <div id="joinQR"></div>
+  </div>
+
+<script src="platform/ui/qr.js"></script>
+<script type="module">
+import { createPokerTable, dealOrder } from "./platform/ui/poker-table.js";
+import { createPokerDealer } from "./platform/ui/poker-dealer.js";
+import { pokerEvents } from "./platform/core/poker-events.js";
+import { el } from "./platform/ui/ui.js";
+import { ready } from "./platform/core/store.js";
+import { loadPokerSettings, savePokerSettings, pokerSettings } from "./platform/core/poker-settings.js";
+import { getTableTheme } from "./platform/core/poker-themes.js";
+
+// Settings live in the platform store, which hydrates once at boot.
+await ready;
+
+/* The buzzer service is its own deployment (see buzzer/README.md), so every
+   platform page reaches it through the same overridable base — identical to
+   feud.html and wheel.html, and the reason a laptop can point at a local
+   dev-server by setting `gsp_buzzer_base` in localStorage. */
+const BUZZER_BASE = (() => {
+  try { return localStorage.getItem("gsp_buzzer_base") || "https://gameshow-mu.vercel.app"; }
+  catch { return "https://gameshow-mu.vercel.app"; }
+})();
+
+const qs = new URLSearchParams(location.search);
+const CODE = (qs.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+/** Which surface this page is: the big screen, or the host's laptop. */
+const SCREEN = qs.get("screen") === "control" ? "control" : "display";
+
+const joinUrlFor = (code) => `${BUZZER_BASE}/poker?code=${code}`;
+const tvUrlFor = (code) => `${location.origin}${location.pathname}?code=${code}`;
+
+/* Themes and accessibility options come from the platform store, so they're
+   set once on the Table & Cards settings screen and every surface picks them
+   up. Declared up here because `runDisplay` is called before its own
+   definition: the function hoists, a `const` would not. */
+let settings = loadPokerSettings();
+
+/** The table theme also lights the room around the felt. */
+function paintStage(tableThemeKey) {
+  const vars = getTableTheme(tableThemeKey).vars;
+  document.body.style.background =
+    `radial-gradient(1400px 900px at 50% -25%, ${vars["--stage-1"]}, transparent 65%), ${vars["--stage-2"]}`;
+}
+
+const stage = document.getElementById("stage");
+const wrap = document.getElementById("tableWrap");
+const tableHost = document.getElementById("tableHost");
+const dealerLayer = document.getElementById("dealerLayer");
+const statusEl = document.getElementById("status");
+const joinCard = document.getElementById("joinCard");
+
+document.getElementById("hostLink").href = "?screen=control";
+
+/* ---------------------------------------------------------- no room yet */
+if (SCREEN === "control") {
+  /* The host's laptop. It owns the room (and the host token), so it needs no
+     `?code=` — see platform/ui/poker-console.js. */
+  document.body.dataset.screen = "control";
+  document.title = "Texas Hold'em · Host";
+  document.getElementById("topbar").remove();
+  stage.remove();
+  joinCard.remove();
+  const consoleHost = document.getElementById("consoleHost");
+  consoleHost.hidden = false;
+  const { mountPokerConsole } = await import("./platform/ui/poker-console.js");
+  mountPokerConsole(consoleHost, { base: BUZZER_BASE, tvUrl: tvUrlFor, joinUrl: joinUrlFor });
+} else if (!CODE) {
+  wrap.remove();
+  joinCard.remove();
+  const input = el("input", { class: "input", id: "codeInput", placeholder: "CODE", maxlength: "6", autocapitalize: "characters" });
+  const form = el("form", {}, [input, el("button", { class: "btn primary", type: "submit", text: "Show table" })]);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const c = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (c) location.search = `?code=${c}`;
+  });
+  stage.appendChild(el("div", { class: "pane" }, [
+    el("div", { class: "glyph", text: "🂡" }),
+    el("h1", { text: "Texas Hold'em" }),
+    el("p", { text: "Type the room code the host created, and this screen becomes the table." }),
+    form,
+    el("a", { class: "btn ghost", href: "?screen=control", text: "🎛 Open host controls" }),
+  ]));
+  statusEl.textContent = "No room";
+} else {
+  runDisplay();
+}
+
+/* ------------------------------------------------------------- display */
+function runDisplay() {
+  const table = createPokerTable({
+    chipLabels: settings.chipLabels,
+    cardTheme: settings.cardTheme,
+    tableTheme: settings.tableTheme,
+  });
+  paintStage(settings.tableTheme);
+  tableHost.appendChild(table.el);
+  const dealer = createPokerDealer({ speech: settings.dealerSpeech });
+  dealerLayer.appendChild(dealer.el);
+  // Cards are thrown from his artwork, so the table needs to know where he is.
+  table.setDealerAnchor(dealer.handsAnchor());
+
+  const chipBtn = document.getElementById("chipLabelBtn");
+  const paintChipBtn = (on) => {
+    chipBtn.setAttribute("aria-pressed", String(on));
+    chipBtn.classList.toggle("on", on);
+  };
+  paintChipBtn(settings.chipLabels);
+  chipBtn.addEventListener("click", () => {
+    settings = savePokerSettings({ chipLabels: !settings.chipLabels });
+    table.setChipLabels(settings.chipLabels);
+    paintChipBtn(settings.chipLabels);
+  });
+
+  /* The settings screen is usually open on a laptop while the TV is already
+     showing the table, so changes there should land here without a reload —
+     that's what the store's cross-window notifications are for. */
+  pokerSettings.subscribe(() => {
+    settings = loadPokerSettings();
+    table.setCardTheme(settings.cardTheme);
+    table.setTableTheme(settings.tableTheme);
+    table.setChipLabels(settings.chipLabels);
+    paintStage(settings.tableTheme);
+    paintChipBtn(settings.chipLabels);
+  });
+
+  // The join panel is worth keeping on screen the whole time — at a game night
+  // people wander over and want in on the next hand.
+  const joinUrl = `${BUZZER_BASE}/poker?code=${CODE}`;
+  document.getElementById("joinCode").textContent = CODE;
+  document.getElementById("joinUrl").textContent = joinUrl.replace(/^https?:\/\//, "");
+  joinCard.hidden = false;
+  try { document.getElementById("joinQR").appendChild(QR.canvas(joinUrl, 76, { margin: 1 })); }
+  catch { document.getElementById("joinQR").remove(); }
+
+  let missed = 0;
+  /* The dealer reacts to *changes*, so the last snapshot has to be kept around
+     to diff against (the server sends whole states, never events). */
+  let prevGame = null;
+  let lastSpoke = 0;
+  /** Quiet this long mid-hand and he'll fill the silence himself. */
+  const IDLE_CHATTER_MS = 30000;
+
+  function driveDealer(game) {
+    const events = pokerEvents(prevGame, game);
+    prevGame = game;
+    if (events.length) {
+      // One line at a time: pokerEvents already ranked them, so the most
+      // dramatic thing that happened is the thing he talks about.
+      dealer.react(events[0]);
+      lastSpoke = Date.now();
+      return;
+    }
+    const midHand = game.street !== "waiting" && game.street !== "complete";
+    if (midHand && Date.now() - lastSpoke > IDLE_CHATTER_MS) {
+      dealer.react("idle");
+      lastSpoke = Date.now();
+    }
+  }
+
+  /* Give the dealer's shuffle a beat to land before the cards start flying,
+     then flick his arm on each pass round the table. */
+  const SHUFFLE_LEAD_MS = 620;
+
+  function pitchCards(game) {
+    const order = dealOrder(game);
+    if (!order.length) return;
+    table.dealHoleCards(order, { startDelay: SHUFFLE_LEAD_MS });
+    // One arm flick per lap, not per card — twelve flicks reads as a twitch.
+    dealer.emote("deal");
+    setTimeout(() => dealer.emote("deal"), SHUFFLE_LEAD_MS + order.length * 125);
+  }
+
+  const waiting = el("div", { class: "pane" }, [
+    el("div", { class: "glyph", text: "🂠" }),
+    el("h1", { text: "Waiting for the host" }),
+    el("p", { text: "The poker table hasn't been opened yet. Players can join with the code — the felt appears the moment the host creates the table." }),
+  ]);
+
+  async function tick() {
+    try {
+      const r = await fetch(`${BUZZER_BASE}/api/poker?code=${CODE}`).then((x) => x.json());
+      missed = 0;
+      statusEl.textContent = "● Live";
+      statusEl.className = "live";
+
+      if (!r || !r.game) {
+        if (!waiting.isConnected) { wrap.hidden = true; stage.appendChild(waiting); }
+        table.setState(null);
+        prevGame = null;
+        return;
+      }
+      if (waiting.isConnected) { waiting.remove(); wrap.hidden = false; }
+      // A fresh hand has to be spotted before setState paints its cards, so
+      // the deal can hide them again on the very same frame.
+      const freshHand = prevGame && prevGame.handNumber !== r.game.handNumber
+        && r.game.street === "preflop";
+      table.setState(r.game);
+      driveDealer(r.game);
+      if (freshHand) pitchCards(r.game);
+    } catch {
+      // A blip on venue wifi shouldn't blank the table — hold the last frame
+      // and only admit there's a problem once several polls in a row fail.
+      if (++missed >= 3) { statusEl.textContent = "Reconnecting…"; statusEl.className = "down"; }
+    }
+  }
+
+  tick();
+  setInterval(tick, 800);
+}
+
+/* --------------------------------------------------------- chrome toggle */
+document.getElementById("immersiveBtn").addEventListener("click", () => {
+  document.body.classList.toggle("immersive");
+});
+// Escape leaves immersive mode, so the chrome is never unreachable.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.body.classList.remove("immersive");
+  if (e.key === "f" || e.key === "F") document.body.classList.toggle("immersive");
+});
+</script>
+</body>
+</html>

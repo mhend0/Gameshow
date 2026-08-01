@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07331f">
+<title>Texas Hold'em</title>
+<style>
+  :root{--felt:#0b3b23;--gold:#ffcf5c;--good:#2fbf5b;--bad:#e8452b;--red:#ff5f6b;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;}
+  body{background:#04120a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+  header{flex:0 0 auto;padding:10px 16px;display:flex;align-items:center;gap:10px;
+    background:linear-gradient(180deg,#0f4a2c,#082b19);border-bottom:2px solid var(--gold);}
+  header .who{font-weight:800;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  header .stack{margin-left:auto;font-size:15px;font-weight:900;color:var(--gold);}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;gap:12px;padding:14px;min-height:0;overflow:auto;}
+
+  .pill{padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:800;letter-spacing:.04em;}
+  .pill.you{background:rgba(255,207,92,.2);color:var(--gold);}
+  .pill.wait{background:rgba(255,255,255,.08);color:#9fd6b8;}
+  .pill.fold{background:rgba(232,69,43,.18);color:#ff9683;}
+  h1{font-size:19px;margin:0;text-align:center;line-height:1.3;}
+  .sub{font-size:13px;color:#9fd6b8;text-align:center;line-height:1.4;}
+
+  .board{width:100%;background:linear-gradient(180deg,#0f4a2c,#0a2d1b);border:1px solid rgba(255,255,255,.14);
+    border-radius:14px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .community{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;min-height:52px;}
+  .pot{font-size:13px;color:var(--gold);font-weight:800;}
+
+  .card{width:38px;height:52px;border-radius:6px;background:#fff;color:#111;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;font-weight:900;font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,.4);}
+  .card.red{color:var(--red);}
+  .card.back{background:linear-gradient(135deg,#1c4fd6,#0d2a86);border:2px solid #fff3;color:transparent;}
+  .hole{display:flex;gap:8px;}
+  .hole .card{width:52px;height:72px;font-size:20px;}
+
+  .seat-list{width:100%;display:flex;flex-direction:column;gap:6px;}
+  .seat{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;background:rgba(255,255,255,.05);font-size:12.5px;}
+  .seat.acting{background:rgba(255,207,92,.16);outline:1px solid var(--gold);}
+  .seat.folded{opacity:.4;}
+  .seat .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;}
+  .seat .st{font-weight:900;color:var(--gold);}
+  .seat .bet{color:#9fd6b8;font-weight:700;}
+
+  .acts{display:flex;gap:8px;width:100%;}
+  button.go{flex:1;background:var(--good);border:none;color:#04140b;border-radius:14px;padding:15px;
+    font-size:15px;font-weight:900;cursor:pointer;font-family:inherit;}
+  button.go.fold{background:var(--bad);color:#fff;}
+  button.go.alt{background:var(--gold);color:#2a1a00;}
+  button.go.ghost{background:transparent;border:1px solid rgba(255,255,255,.25);color:#fff;}
+  button.go:disabled{opacity:.35;}
+
+  .bet-panel{width:100%;display:flex;flex-direction:column;gap:10px;background:rgba(0,0,0,.25);border-radius:14px;padding:12px;}
+  .bet-amount{text-align:center;font-size:26px;font-weight:900;color:var(--gold);}
+  input[type=range]{width:100%;}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;}
+  .presets button{flex:1;min-width:64px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);
+    color:#fff;border-radius:10px;padding:8px 4px;font-size:11.5px;font-weight:800;font-family:inherit;cursor:pointer;}
+  .presets button:active{background:var(--gold);color:#2a1a00;}
+
+  input{width:100%;background:#031f11;border:1px solid rgba(255,255,255,.18);border-radius:12px;color:#fff;
+    padding:15px;font-size:17px;text-align:center;font-family:inherit;}
+  input:focus{outline:none;border-color:var(--gold);}
+  .err{color:#ff9683;font-size:13px;text-align:center;min-height:16px;}
+  .foot{flex:0 0 auto;padding:8px;text-align:center;font-size:11.5px;color:#3a5c4b;}
+  .logo{font-size:38px;text-align:center;}
+  .gamehead{display:flex;flex-direction:column;align-items:center;gap:2px;}
+  .gamehead .glyph{font-size:34px;line-height:1;}
+  .gamehead .name{font-size:13px;font-weight:800;letter-spacing:.12em;color:#9fd6b8;text-transform:uppercase;}
+  form{display:flex;flex-direction:column;gap:12px;width:min(90vw,340px);}
+
+  .result-card{width:100%;background:linear-gradient(180deg,#1b5c37,#0f4a2c);border:1px solid var(--gold);
+    border-radius:14px;padding:14px;text-align:center;}
+  .result-card .win{font-size:15px;font-weight:900;color:var(--gold);}
+  .result-card .amt{font-size:22px;font-weight:900;}
+</style>
+</head>
+<body>
+  <header id="hdr" style="display:none">
+    <span class="who" id="whoName">—</span>
+    <span class="stack" id="myStack"></span>
+  </header>
+  <main id="main"><div class="logo">🂡</div><div class="sub">Loading…</div></main>
+  <div class="foot">Texas Hold'em</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+let CODE = (qs.get("code") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const main = document.getElementById("main");
+const hdr = document.getElementById("hdr");
+let me = null;              // {playerId, name}
+let poll = null;
+let view = null;
+let pending = null;         // label shown while an action is in flight
+
+const RANK_LABEL = { 10: "T", 11: "J", 12: "Q", 13: "K", 14: "A" };
+const SUIT_GLYPH = { s: "♠", h: "♥", d: "♦", c: "♣" };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const api = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const store = () => (CODE ? JSON.parse(localStorage.getItem("buzz_p_" + CODE) || "null") : null);
+const saveMe = () => localStorage.setItem("buzz_p_" + CODE, JSON.stringify(me));
+
+function cardHtml(card, faceDown) {
+  if (faceDown || !card) return `<div class="card back"></div>`;
+  const red = card.suit === "h" || card.suit === "d";
+  return `<div class="card ${red ? "red" : ""}">${RANK_LABEL[card.rank] || card.rank}${SUIT_GLYPH[card.suit]}</div>`;
+}
+
+/* ---------------------------------------------------------- join flow */
+function showEnterCode(msg) {
+  hdr.style.display = "none";
+  main.innerHTML = `<div class="logo">🂡</div><h1>Join the table</h1><div class="err">${esc(msg || "")}</div>
+    <form id="f"><input id="code" placeholder="ROOM CODE" value="${esc(CODE)}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase">
+    <button class="go" type="submit">Continue</button></form>`;
+  document.getElementById("f").onsubmit = (e) => {
+    e.preventDefault();
+    const c = document.getElementById("code").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (c) location.search = "?code=" + c;
+  };
+}
+function showEnterName(msg) {
+  hdr.style.display = "none";
+  main.innerHTML = `<div class="logo">🂡</div><h1>Table ${esc(CODE)}</h1>
+    <div class="sub">Pick the name the table will see.</div><div class="err">${esc(msg || "")}</div>
+    <form id="f"><input id="name" placeholder="Your name" maxlength="24">
+    <button class="go" type="submit">Join</button></form>`;
+  const inp = document.getElementById("name");
+  inp.focus();
+  document.getElementById("f").onsubmit = async (e) => {
+    e.preventDefault();
+    const name = inp.value.trim();
+    if (!name) return;
+    const r = await api("/api/join", { code: CODE, name });
+    if (r.error) return showEnterName(r.error);
+    me = { playerId: r.playerId, name: r.name };
+    saveMe();
+    startPolling();
+  };
+}
+
+/* ------------------------------------------------------------ screens */
+function setHeader(g, you) {
+  hdr.style.display = "flex";
+  document.getElementById("whoName").textContent = me.name;
+  document.getElementById("myStack").textContent = you ? `🪙 ${you.stack ?? ""}` : "";
+}
+
+function seatListHtml(g) {
+  return `<div class="seat-list">${g.seats.filter((s) => s.status !== "empty").map((s) => `
+    <div class="seat ${g.actingIndex === s.index ? "acting" : ""} ${s.status === "folded" ? "folded" : ""}">
+      <span class="nm">${esc(s.name)}${s.id === me.playerId ? " (you)" : ""}${s.index === g.dealerIndex ? " 🔘" : ""}</span>
+      ${s.bet ? `<span class="bet">${s.bet}</span>` : ""}
+      <span class="st">${s.status === "allin" ? "ALL IN" : s.status === "folded" ? "FOLDED" : s.status === "sitout" ? "SITTING OUT" : s.stack}</span>
+    </div>`).join("")}</div>`;
+}
+
+function boardHtml(g) {
+  const cards = g.community.length ? g.community.map((c) => cardHtml(c)).join("") : `<span class="sub">Waiting for the flop…</span>`;
+  return `<div class="board"><div class="community">${cards}</div><div class="pot">Pot: 🪙 ${g.pot}</div></div>`;
+}
+
+/** Rounded, deduped bet-sizing presets between the legal min and max. */
+function presets(legal, potNow) {
+  const toCall = legal.callAmount || 0;
+  const potIfCalled = potNow + toCall;
+  const raw = [
+    { label: "Min", to: legal.minTo },
+    { label: "½ Pot", to: toCall + Math.round(potIfCalled / 2) },
+    { label: "Pot", to: toCall + potIfCalled },
+    { label: "2x Pot", to: toCall + potIfCalled * 2 },
+    { label: "All In", to: legal.maxTo },
+  ];
+  const seen = new Set();
+  return raw
+    .map((p) => ({ ...p, to: Math.max(legal.minTo, Math.min(Math.round(p.to), legal.maxTo)) }))
+    .filter((p) => (seen.has(p.to) ? false : (seen.add(p.to), true)));
+}
+
+function render(payload) {
+  const g = payload && payload.game;
+  const you = g && g.you;
+  setHeader(g, you);
+
+  if (!g) {
+    if (view === "no-table") return;
+    view = "no-table";
+    main.innerHTML = `<div class="logo">🂡</div><h1>Waiting for the host</h1>
+      <div class="sub">The table hasn't been set up yet. Keep this open.</div>`;
+    return;
+  }
+
+  if (!you) {
+    const key = ["sit", g.id].join("|");
+    if (key === view) return;
+    view = key;
+    main.innerHTML = `<div class="gamehead"><span class="glyph">🂡</span><span class="name">Texas Hold'em</span></div>
+      <h1>Take a seat?</h1><div class="sub">You'll buy in for the table's starting stack.</div>
+      <div class="acts"><button class="go alt" id="sitBtn">Sit Down</button></div><div class="err" id="err"></div>`;
+    document.getElementById("sitBtn").onclick = async () => {
+      const r = await api("/api/poker", { code: CODE, playerId: me.playerId, action: "sit" });
+      if (r.full) document.getElementById("err").textContent = "Table's full.";
+      else if (r.error) document.getElementById("err").textContent = r.error;
+      view = null; tick();
+    };
+    return;
+  }
+
+  if (g.street === "waiting") {
+    const key = ["waiting", g.id, you.stack].join("|");
+    if (key === view) return;
+    view = key;
+    main.innerHTML = `<div class="pill wait">SEATED</div><h1>Waiting for the next hand</h1>
+      <div class="sub">Stack: 🪙 ${you.stack}</div>${seatListHtml(g)}
+      <div class="acts"><button class="go ghost" id="standBtn">Leave table</button></div>`;
+    document.getElementById("standBtn").onclick = () => send({ action: "stand" }, null);
+    return;
+  }
+
+  if (g.street === "complete" && g.results.length) {
+    const key = ["result", g.id, g.handNumber].join("|");
+    if (key === view) return;
+    view = key;
+    const mine = g.results.flatMap((r) => r.winners).find((w) => w.seatId === me.playerId);
+    main.innerHTML = `${boardHtml(g)}
+      <div class="result-card">
+        ${g.results.map((r) => r.winners.map((w) =>
+          `<div class="win">${esc(g.seats.find((s) => s.id === w.seatId)?.name || "?")} — ${esc(w.handName)}</div>
+           <div class="amt">🪙 ${w.share}</div>`).join("")).join("<hr style='border-color:rgba(255,255,255,.15);width:100%'>")}
+      </div>
+      <div class="sub">${mine ? "You won this one!" : "Better luck next hand."}</div>
+      ${seatListHtml(g)}`;
+    return;
+  }
+
+  const holeHtml = `<div class="hole">${you.holeCards.length ? you.holeCards.map((c) => cardHtml(c)).join("") : `${cardHtml(null, true)}${cardHtml(null, true)}`}</div>`;
+
+  if (you.isActing) {
+    const key = ["act", g.id, g.handNumber, g.street, you.stack, you.legal && you.legal.minTo, pending].join("|");
+    if (key === view) return;
+    view = key;
+
+    if (pending) {
+      main.innerHTML = `${boardHtml(g)}${holeHtml}<div class="pill you">SENT</div><h1>${esc(pending)}</h1>`;
+      return;
+    }
+
+    const legal = you.legal;
+    main.innerHTML = `${boardHtml(g)}${holeHtml}<div class="pill you">YOUR TURN</div>
+      <div class="acts">
+        ${legal.canFold ? `<button class="go fold" id="foldBtn">Fold</button>` : ""}
+        ${legal.canCheck ? `<button class="go ghost" id="checkBtn">Check</button>` : ""}
+        ${legal.canCall ? `<button class="go" id="callBtn">Call 🪙${legal.callAmount}</button>` : ""}
+      </div>
+      ${(legal.canBet || legal.canRaise) ? `
+        <div class="bet-panel">
+          <div class="bet-amount" id="betAmt">🪙 ${legal.minTo}</div>
+          <input type="range" id="betSlider" min="${legal.minTo}" max="${legal.maxTo}" value="${legal.minTo}" step="1">
+          <div class="presets">${presets(legal, g.pot).map((p) => `<button data-to="${p.to}">${p.label}<br>🪙${p.to}</button>`).join("")}</div>
+          <button class="go alt" id="betBtn">${legal.canBet ? "Bet" : "Raise to"} 🪙 <span id="betBtnAmt">${legal.minTo}</span></button>
+        </div>` : ""}
+      <div class="err" id="err"></div>`;
+
+    const slider = document.getElementById("betSlider");
+    const amtEl = document.getElementById("betAmt");
+    const btnAmtEl = document.getElementById("betBtnAmt");
+    if (slider) {
+      slider.oninput = () => { amtEl.textContent = "🪙 " + slider.value; btnAmtEl.textContent = slider.value; };
+      main.querySelectorAll(".presets button").forEach((b) => {
+        b.onclick = () => { slider.value = b.dataset.to; slider.oninput(); };
+      });
+      document.getElementById("betBtn").onclick = () =>
+        send({ action: legal.canBet ? "bet" : "raise", to: Number(slider.value) }, `${legal.canBet ? "Bet" : "Raise to"} 🪙${slider.value}`);
+    }
+    if (legal.canFold) document.getElementById("foldBtn").onclick = () => send({ action: "fold" }, "Fold");
+    if (legal.canCheck) document.getElementById("checkBtn").onclick = () => send({ action: "check" }, "Check");
+    if (legal.canCall) document.getElementById("callBtn").onclick = () => send({ action: "call" }, `Call 🪙${legal.callAmount}`);
+    return;
+  }
+
+  // Not my turn: watch the hand.
+  const mySeat = g.seats.find((s) => s.id === me.playerId);
+  const key = ["watch", g.id, g.handNumber, g.street, g.actingId, mySeat && mySeat.status].join("|");
+  if (key === view) return;
+  view = key;
+  const foldedOut = mySeat && mySeat.status === "folded";
+  const waitingOn = g.seats.find((s) => s.index === g.actingIndex);
+  main.innerHTML = `${boardHtml(g)}${holeHtml}
+    <div class="pill ${foldedOut ? "fold" : "wait"}">${foldedOut ? "FOLDED" : (waitingOn ? esc(waitingOn.name) + "'s turn" : "Dealing…")}</div>
+    ${seatListHtml(g)}`;
+}
+
+/** Send what I did, then hold the screen until the state actually changes. */
+async function send(body, label) {
+  pending = label;
+  view = null;
+  const r = await api("/api/poker", { code: CODE, playerId: me.playerId, ...body });
+  pending = null;
+  view = null;
+  if (r && r.error) {
+    tick();
+    const err = document.getElementById("err");
+    if (err) err.textContent = r.error;
+    return;
+  }
+  navigator.vibrate && navigator.vibrate(50);
+  tick();
+}
+
+/* ------------------------------------------------------------ polling */
+async function tick() {
+  try {
+    const r = await fetch(`/api/poker?code=${CODE}&playerId=${me.playerId}`).then((x) => x.json());
+    render(r);
+  } catch { /* offline: leave the screen as it is and try again */ }
+}
+function startPolling() {
+  if (poll) clearInterval(poll);
+  tick();
+  poll = setInterval(tick, 900);
+}
+
+/* --------------------------------------------------------------- boot */
+(async function () {
+  if (!CODE) return showEnterCode();
+  me = store();
+  if (me && me.playerId) {
+    const r = await api("/api/join", { code: CODE, name: me.name, playerId: me.playerId });
+    if (r.error) { localStorage.removeItem("buzz_p_" + CODE); return showEnterName(r.error); }
+    me = { playerId: r.playerId, name: r.name };
+    saveMe();
+    startPolling();
+  } else {
+    showEnterName();
+  }
+})();
+</script>
+</body>
+</html>

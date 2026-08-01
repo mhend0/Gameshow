@@ -83,6 +83,17 @@
   .prev-bars { display: flex; flex-direction: column; gap: 4px; width: 100%; }
   .prev-bar { height: 11px; border-radius: 3px; background: var(--bg-3); }
   .prev-bar:first-child { background: linear-gradient(90deg, var(--g1), color-mix(in srgb, var(--g1) 55%, #000)); width: 70%; }
+  .prev-poker { display: flex; gap: 6px; justify-content: center; align-items: center; width: 100%; }
+  .prev-poker .prev-card {
+    width: 34px; height: 48px; border-radius: 5px; flex: none;
+    background: linear-gradient(170deg, #fff, #e9edf5); color: #14161c;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 15px; line-height: 1.05;
+    box-shadow: 0 3px 7px rgba(0,0,0,.5);
+  }
+  .prev-poker .prev-card:first-child { transform: rotate(-7deg); }
+  .prev-poker .prev-card:last-child { transform: rotate(7deg); }
+  .prev-poker .prev-card.red { color: #e0313f; }
 
   .game-stat { font-size: 12.5px; color: var(--text-2); font-weight: 600; white-space: nowrap; }
 
@@ -230,9 +241,26 @@
       return wrap;
     }
 
+    function miniPoker() {
+      // Poker has no library to sample, so the preview is just the game's own
+      // furniture: two hole cards and the felt.
+      const wrap = el("div", { class: "prev-poker" });
+      for (const [rank, suit, red] of [["A", "♠", false], ["K", "♥", true]]) {
+        wrap.appendChild(el("div", { class: `prev-card ${red ? "red" : ""}` }, [
+          el("span", { text: rank }), el("span", { text: suit }),
+        ]));
+      }
+      return wrap;
+    }
+
     function preview(g) {
       // Jeopardy's library holds categories, not boards — show the most recently
       // generated board (a real gameboard grid) instead of a bare category.
+      if (g.key === "poker") {
+        const frame = el("div", { class: "game-preview" });
+        frame.appendChild(miniPoker());
+        return frame;
+      }
       const rep = g.key === "jeopardy" ? mostRecent(BoardRepo.list()) : mostRecent((SOURCES[g.key] || {}).items?.() || []);
       const frame = el("div", { class: "game-preview" });
       if (!rep) { frame.classList.add("empty"); frame.textContent = "No content yet"; return frame; }
@@ -345,11 +373,15 @@
             ]),
           ]),
           available ? preview(g) : null,
-          el("span", { class: "game-stat", text: available ? `${src ? src.noun(nItems) : ""} · ${nSessions} session${nSessions === 1 ? "" : "s"}` : "On the roadmap" }),
+          el("span", { class: "game-stat", text: available ? (src
+            ? `${src.noun(nItems)} · ${nSessions} session${nSessions === 1 ? "" : "s"}`
+            : (g.stat || "")) : "On the roadmap" }),
+          // A game with no authored library (poker deals its own cards) has
+          // nothing to randomise and no session to assemble — it just opens.
           available ? el("div", { class: "game-acts" }, [
-            el("a", { class: "btn primary sm", href: consoleUrl(g), text: "▶ Continue" }),
-            el("button", { class: "btn sm", text: "🎲 Random Game", onClick: () => startRandomGame(g) }),
-            el("button", { class: "btn sm", text: "🎯 Start a Session", onClick: () => openSessionPicker(g) }),
+            el("a", { class: "btn primary sm", href: consoleUrl(g), text: g.cta || "▶ Continue" }),
+            src ? el("button", { class: "btn sm", text: "🎲 Random Game", onClick: () => startRandomGame(g) }) : null,
+            src ? el("button", { class: "btn sm", text: "🎯 Start a Session", onClick: () => openSessionPicker(g) }) : null,
             pages.length ? el("a", { class: "gear", href: settingsUrl(g.key), title: `${g.name} settings`, "aria-label": `${g.name} settings`, text: "⚙" }) : null,
           ].filter(Boolean)) : null,
         ].filter(Boolean));

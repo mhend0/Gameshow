@@ -6,6 +6,12 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  makeTable, seatPlayer, removePlayer, adjustStack,
+  startHand, applyAction, legalActions, foldOut, buildPots, arrangeSeats,
+  setPaused, setActionTimer, setAutoDeal, setBlinds, setBlindLevel, endHand,
+  foldExpired, actionExpired,
+} from "./lib/poker.js";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;   // PORT=3100 node dev-server.mjs
@@ -45,7 +51,7 @@ const server = createServer(async (req, res) => {
     const host = rid(24);
     rooms.set(code, { host, open: false, round: 1, mode: "buzz", players: {}, buzzed: {}, order: {}, created: Date.now(),
       wagerActive: false, wagerOpen: false, wagerRound: 0, wager: {},
-      chan: {} });
+      chan: {}, poker: null });
     return json(res, 200, { code, hostToken: host });
   }
 
@@ -194,6 +200,106 @@ const server = createServer(async (req, res) => {
       seq: c.state.seq, t: Date.now(), ...(verdict.entry || {}) };
     c.subs.push(entry);
     return json(res, 200, { ok: true, action: entry.action });
+  }
+
+  // ---- poker: mirrors api/poker.js, in-memory instead of Redis. ----
+  if (url.pathname === "/api/poker") {
+    const isRealShowdown = (game) => game.street === "complete" && game.results.some((r) => r.winners.some((w) => w.rank));
+    const publicView = (game, viewerId) => {
+      const showdown = isRealShowdown(game);
+      const seats = game.seats.map((s) => {
+        const reveal = s.id && (s.id === viewerId || (showdown && s.status !== "folded" && s.holeCards.length));
+        return { index: s.index, id: s.id, name: s.name, stack: s.stack, bet: s.bet, totalBet: s.totalBet,
+          status: s.status, holeCards: reveal ? s.holeCards : s.holeCards.map(() => null) };
+      });
+      const acting = game.actingIndex >= 0 ? game.seats[game.actingIndex] : null;
+      const you = viewerId ? game.seats.find((s) => s.id === viewerId) : null;
+      return {
+        id: game.id, seats, dealerIndex: game.dealerIndex, handNumber: game.handNumber,
+        smallBlind: game.smallBlind, bigBlind: game.bigBlind, community: game.community, street: game.street,
+        currentBet: game.currentBet, pot: game.seats.reduce((t, s) => t + s.totalBet, 0),
+        pots: (game.pots && game.pots.length) ? game.pots : buildPots(game.seats),
+        actingIndex: game.actingIndex, actingId: acting ? acting.id : null, results: game.results,
+        paused: !!game.paused, handVoided: !!game.handVoided, autoDeal: !!game.autoDeal,
+        blindLevel: game.blindLevel || 0, timerSeconds: game.timerSeconds || 0,
+        secondsLeft: game.timerSeconds && game.actingSince && !game.paused && game.actingIndex >= 0
+          ? Math.max(0, Math.ceil((game.actingSince + game.timerSeconds * 1000 - Date.now()) / 1000))
+          : null,
+        expired: actionExpired(game),
+        you: you ? { seatIndex: you.index, holeCards: you.holeCards, stack: you.stack, bet: you.bet, status: you.status,
+          isActing: acting ? acting.id === viewerId : false,
+          legal: acting && acting.id === viewerId ? legalActions(game) : null } : null,
+      };
+    };
+
+    if (req.method === "GET") {
+      const room = rooms.get(up(url.searchParams.get("code")));
+      const viewerId = url.searchParams.get("playerId") || null;
+      if (!room || !room.poker) return json(res, 200, { game: null });
+      return json(res, 200, { game: publicView(room.poker, viewerId) });
+    }
+
+    const room = rooms.get(up(b.code));
+    if (!room) return json(res, 404, { error: "Room not found" });
+
+    if (b.hostToken) {
+      if (room.host !== b.hostToken) return json(res, 403, { error: "Bad host token" });
+      if (b.action === "create") {
+        if (!room.poker) room.poker = makeTable(b.table || {});
+        return json(res, 200, { game: publicView(room.poker, null) });
+      }
+      if (!room.poker) return json(res, 409, { error: "The poker table hasn't been created yet" });
+      try {
+        switch (b.action) {
+          case "start": startHand(room.poker); break;
+          case "end": room.poker = null; return json(res, 200, { ok: true });
+          case "arrange": arrangeSeats(room.poker, Array.isArray(b.order) ? b.order.map(String) : []); break;
+          case "pause": setPaused(room.poker, true); break;
+          case "resume": setPaused(room.poker, false); break;
+          case "endHand": endHand(room.poker); break;
+          case "timer": setActionTimer(room.poker, b.seconds); break;
+          case "autoDeal": setAutoDeal(room.poker, !!b.on); break;
+          case "blinds":
+            if (b.level != null) setBlindLevel(room.poker, b.level);
+            else setBlinds(room.poker, b.smallBlind, b.bigBlind);
+            break;
+          case "timeout":
+            if (!foldExpired(room.poker)) return json(res, 200, { ok: true, expired: false, game: publicView(room.poker, null) });
+            break;
+          case "kick": removePlayer(room.poker, String(b.seatId)); break;
+          case "addChips": adjustStack(room.poker, String(b.seatId), Math.abs(Number(b.amount) || 0)); break;
+          case "removeChips": adjustStack(room.poker, String(b.seatId), -Math.abs(Number(b.amount) || 0)); break;
+          default: return json(res, 400, { error: "Unknown host action" });
+        }
+      } catch (e) { return json(res, 400, { error: e.message }); }
+      return json(res, 200, { ok: true, game: publicView(room.poker, null) });
+    }
+
+    const player = room.players[b.playerId];
+    if (!player) return json(res, 403, { error: "Not joined" });
+    if (!room.poker) return json(res, 409, { error: "The poker table isn't open yet" });
+    const playerId = String(b.playerId);
+    try {
+      switch (b.action) {
+        case "sit": {
+          const buyIn = Number(b.buyIn);
+          const idx = seatPlayer(room.poker, { id: playerId, name: player.name, ...(Number.isFinite(buyIn) && buyIn > 0 ? { stack: Math.round(buyIn) } : {}) });
+          if (idx < 0) return json(res, 200, { full: true });
+          break;
+        }
+        case "stand": {
+          const seat = room.poker.seats.find((s) => s.id === playerId);
+          if (seat && seat.status === "active") foldOut(room.poker, playerId);
+          else if (seat) removePlayer(room.poker, playerId);
+          break;
+        }
+        case "fold": case "check": case "call": case "bet": case "raise":
+          applyAction(room.poker, playerId, { type: b.action, to: Number(b.to) });
+          break;
+        default: return json(res, 400, { error: "Unknown action" });
+      }
+    } catch (e) { return json(res, 200, { error: e.message }); }
+    return json(res, 200, { ok: true, game: publicView(room.poker, playerId) });
   }
 
   if (url.pathname === "/api/host") {

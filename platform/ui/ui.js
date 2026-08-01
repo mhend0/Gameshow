@@ -11,7 +11,16 @@ export function el(tag, props = {}, children = []) {
     else if (k === "text") node.textContent = v;
     else if (k === "value") node.value = v;          // property, so <textarea>/<select> populate
     else if (k === "checked") node.checked = !!v;
-    else if (k === "style" && typeof v === "object") Object.assign(node.style, v);
+    // Custom properties have to go through setProperty — assigning `--x` onto
+    // a CSSStyleDeclaration is silently dropped, which makes a themed element
+    // render with no theme and nothing to show for it in the console.
+    else if (k === "style" && typeof v === "object") {
+      for (const [prop, val] of Object.entries(v)) {
+        if (val == null) continue;
+        if (prop.startsWith("--")) node.style.setProperty(prop, String(val));
+        else node.style[prop] = val;
+      }
+    }
     else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === "dataset") Object.assign(node.dataset, v);
     else node.setAttribute(k, v);

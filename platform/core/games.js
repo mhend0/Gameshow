@@ -15,6 +15,11 @@
  * @property {string} glyph       Emoji/short glyph for the card.
  * @property {"available"|"coming-soon"} status
  * @property {string} [console]   URL of the game's control console (when available).
+ * @property {string} [stat]      Home-card status line. Games with an authored
+ *                                library derive theirs from its contents; a game
+ *                                that needs no setup (poker deals its own cards)
+ *                                says so here instead.
+ * @property {string} [cta]       Label for the home card's primary button.
  * @property {GamePage[]} [pages] This game's own screens. They become the tabs on
  *                                its settings page and the standalone URLs that
  *                                still point at each one, so a new game brings its
@@ -84,6 +89,29 @@ export const GAMES = [
         hint: "Answers and categories", panel: "puzzles-panel.js#mountPuzzles" },
       { key: "sessions", href: "wheel-sessions.html", label: "Sessions", glyph: "🎡",
         hint: "Rounds, toss-ups and the bonus round", panel: "wheel-sessions-panel.js#mountWheelSessions" },
+    ],
+  },
+  {
+    key: "poker",
+    name: "Texas Hold'em",
+    tagline: "No limit, all in",
+    description:
+      "Real No Limit Hold'em with the table on the big screen and everybody's cards on their own phone. Blinds, side pots and showdowns are dealt by the server, so nobody has to know the rules to play.",
+    accent: "#127a48",
+    accent2: "#ffcf5c",
+    glyph: "🂡",
+    status: "available",
+    // The host console; it links out to the TV display, which is the same
+    // page at `?code=<room>`.
+    console: "poker.html?screen=control",
+    // Poker authors nothing up front — there is no library to count.
+    stat: "Live table · nothing to set up",
+    cta: "▶ Open table",
+    pages: [
+      {
+        key: "table", label: "Table & Cards", hint: "Themes and accessibility",
+        glyph: "🎨", panel: "poker-panel.js#mountPokerSettings",
+      },
     ],
   },
   {

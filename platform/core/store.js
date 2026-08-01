@@ -50,17 +50,73 @@ function emit(name) {
   if (set) for (const fn of set) { try { fn(); } catch (e) { console.error(e); } }
 }
 
-// Cross-window notifications: another tab wrote → refresh local subscribers.
+// Cross-window notifications: another tab wrote → reload our copy, then tell
+// local subscribers.
+//
+// Reloading is the important half. Reads are served from the in-memory cache
+// (that's what makes them synchronous), and that cache is otherwise only
+// filled at boot — so a bare `emit` would wake every subscriber up to re-read
+// the *same stale value this window already had*. Anything the other window
+// changed would only appear after a reload of this one.
 if (channel) {
   channel.onmessage = (e) => {
     const c = e && e.data && e.data.collection;
-    if (c) emit(c);
+    if (c) reloadFromDb(c);
   };
 }
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
-    if (e.key && e.key.startsWith(NS)) emit(e.key.slice(NS.length));
+    if (e.key && e.key.startsWith(NS)) reloadFromDb(e.key.slice(NS.length));
   });
+}
+
+/**
+ * Reloads in flight, keyed by name, so they can be chained.
+ *
+ * Two quick changes in another window produce two notifications and therefore
+ * two reads. Run them concurrently and they can finish out of order, leaving
+ * the cache holding the *older* snapshot — and for a collection, an older
+ * read's `clear()` could wipe records a newer one had already restored.
+ * Chaining keeps them in message order, so the last read genuinely wins.
+ * @type {Map<string, Promise<void>>}
+ */
+const reloads = new Map();
+
+/** Queue a reload behind any already running for the same name. */
+function reloadFromDb(name) {
+  const next = (reloads.get(name) || Promise.resolve())
+    .then(() => readIntoCache(name), () => readIntoCache(name));
+  reloads.set(name, next);
+  return next;
+}
+
+/**
+ * Pull one collection or value back out of IndexedDB into the cache, then
+ * notify subscribers. Used only for changes made by *other* windows — a local
+ * write updates the cache itself and emits synchronously.
+ * @param {string} name
+ */
+async function readIntoCache(name) {
+  const entry = registry.get(name);
+  if (!entry) { emit(name); return; }        // nothing local cares about it yet
+  try {
+    const db = await openDb();
+    if (entry.kind === "value") {
+      const row = await reqAsPromise(
+        db.transaction(VALUES_STORE, "readonly").objectStore(VALUES_STORE).get(name));
+      valueCache.set(name, row ? row.value : entry.fallback);
+    } else {
+      const idx = db.transaction(RECORDS_STORE, "readonly")
+        .objectStore(RECORDS_STORE).index("collection");
+      const rows = await reqAsPromise(idx.getAll(IDBKeyRange.only(name)));
+      const map = collectionMap(name);
+      map.clear();                            // the other window may have deleted records
+      for (const row of rows) map.set(row.id, row.value);
+    }
+  } catch (e) {
+    console.error(`Failed to reload "${name}" after another window changed it`, e);
+  }
+  emit(name);
 }
 
 /** Thrown when a write to IndexedDB fails, so callers can offer to reclaim space. */
