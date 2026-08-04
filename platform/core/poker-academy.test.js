@@ -19,7 +19,7 @@ import {
   gradeDrill, drillSeed, ACHIEVEMENTS, earnedAchievements, emptyProgress,
   normaliseProgress, applyAttempt,
 } from "./poker-academy.js";
-import { bestHandRank, compareHandRanks } from "./poker.js";
+import { bestHandRank, compareHandRanks, describeHandRank } from "./poker.js";
 import { classifyDraws, outsToEquity, potOdds, equity } from "./poker-odds.js";
 
 /** Enough seeds to hit the awkward boards, few enough to stay quick. */
@@ -174,6 +174,26 @@ describe("the answers are actually correct", () => {
     }
   });
 
+  test("two hands with the same name are explained by the card that decided it", () => {
+    // "Pair of fives beats pair of fives" is true, useless, and the most
+    // common outcome once a board pairs — so the explanation has to reach
+    // into the kickers rather than stopping at the hand's name.
+    let sameName = 0;
+    for (const seed of SEEDS) {
+      const d = generateDrill("whichWins", seed);
+      const { hole, opponentHole, board } = d.spot;
+      const a = bestHandRank([...hole, ...board]);
+      const b = bestHandRank([...opponentHole, ...board]);
+      if (compareHandRanks(a, b) === 0) continue;
+      if (describeHandRank(a) !== describeHandRank(b)) continue;
+      sameName++;
+      assert.ok(d.explain.includes("comes down to"),
+        `seed ${seed}: two identical hand names explained only as "${d.explain}"`);
+      assert.ok(/against/.test(d.explain), `seed ${seed}: no deciding card named`);
+    }
+    assert.ok(sameName > 5, `only ${sameName} same-name showdowns in the sample`);
+  });
+
   test("countOuts counts the cards that are really there", () => {
     for (const seed of SEEDS) {
       const d = generateDrill("countOuts", seed);
@@ -183,6 +203,23 @@ describe("the answers are actually correct", () => {
       assert.ok(counted.length, `seed ${seed}: asked about a draw that isn't there`);
       assert.equal(Number(d.options[d.answer]), counted[0].outs,
         `seed ${seed}: said ${d.options[d.answer]}, really ${counted[0].outs}`);
+    }
+  });
+
+  test("a count question never offers zero, and always names what it's counting towards", () => {
+    // Zero next to a real count is transparently not the answer, and reusing
+    // the draw's own label produced "to make a draw to trips", which is not a
+    // sentence. Both are the kind of thing that quietly makes a trainer feel
+    // amateur, so both are pinned here.
+    for (const seed of SEEDS) {
+      const d = generateDrill("countOuts", seed);
+      if (d.kind !== "countOuts") continue;
+      for (const option of d.options) {
+        assert.ok(Number(option) > 0, `seed ${seed}: offered "${option}" as an out count`);
+      }
+      assert.match(d.question,
+        /to make (a flush|a straight|a full house|four of a kind|three of a kind|two pair)\?$/,
+        `seed ${seed}: awkward question "${d.question}"`);
     }
   });
 

@@ -11,6 +11,17 @@ export function el(tag, props = {}, children = []) {
     else if (k === "text") node.textContent = v;
     else if (k === "value") node.value = v;          // property, so <textarea>/<select> populate
     else if (k === "checked") node.checked = !!v;
+    // Boolean attributes are present-or-absent, not true-or-false: HTML reads
+    // `disabled="false"` as disabled, so `setAttribute(k, false)` does the
+    // exact opposite of what the caller asked for. Setting the property
+    // instead gets both directions right. (This had left the poker host
+    // console's blind buttons permanently disabled — `disabled: !between` is
+    // the obvious way to write it, and it silently never worked.)
+    else if (typeof v === "boolean") {
+      if (k in node) node[k] = v;
+      else if (v) node.setAttribute(k, "");
+      else node.removeAttribute(k);
+    }
     // Custom properties have to go through setProperty — assigning `--x` onto
     // a CSSStyleDeclaration is silently dropped, which makes a themed element
     // render with no theme and nothing to show for it in the console.

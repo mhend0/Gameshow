@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Academy · Texas Hold'em</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#07080d" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Game Show" />
+<meta name="mobile-web-app-capable" content="yes" />
+<script src="platform/ui/pwa.js" defer></script>
+<link rel="stylesheet" href="platform/ui/theme.css" />
+<style>
+  /* The poker green, so you always know which game you're in. */
+  body { --accent:#127a48; --accent-2:#18c29c; --gold:#ffcf5c; }
+  main.wrap { padding-bottom:60px; }
+</style>
+</head>
+<body>
+  <div id="topbar"></div>
+  <main class="wrap">
+    <div id="academy"></div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    /*
+     * The single-player half of Texas Hold'em.
+     *
+     * Thin, like the other platform pages: everything is in the view, and
+     * everything the view knows is in platform/core/poker-academy.js. No room
+     * code, no buzzer service and no polling — this is the one poker screen
+     * that never talks to a server, which is exactly why it works on a train.
+     */
+    import { el, topbar } from "./platform/ui/ui.js";
+    import { mountAcademy } from "./platform/ui/poker-academy-view.js";
+    import { ready } from "./platform/core/store.js";
+
+    // Progress lives in the platform store, which hydrates once at boot.
+    await ready;
+
+    document.getElementById("topbar").replaceWith(
+      topbar({ active: "Academy", links: [
+        { href: "home.html", label: "Home" },
+        { href: "academy.html", label: "Academy" },
+      ], right: [
+        el("a", { class: "btn sm", href: "settings.html?game=poker", text: "🎨 Table & Cards" }),
+        el("a", { class: "btn primary sm", href: "poker.html?screen=control", text: "▶ Open Table" }),
+      ]})
+    );
+
+    mountAcademy(document.getElementById("academy"));
+  </script>
+</body>
+</html>

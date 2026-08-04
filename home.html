@@ -380,6 +380,7 @@
           // nothing to randomise and no session to assemble — it just opens.
           available ? el("div", { class: "game-acts" }, [
             el("a", { class: "btn primary sm", href: consoleUrl(g), text: g.cta || "▶ Continue" }),
+            ...(g.extra || []).map((x) => el("a", { class: "btn sm", href: x.href, text: x.label })),
             src ? el("button", { class: "btn sm", text: "🎲 Random Game", onClick: () => startRandomGame(g) }) : null,
             src ? el("button", { class: "btn sm", text: "🎯 Start a Session", onClick: () => openSessionPicker(g) }) : null,
             pages.length ? el("a", { class: "gear", href: settingsUrl(g.key), title: `${g.name} settings`, "aria-label": `${g.name} settings`, text: "⚙" }) : null,

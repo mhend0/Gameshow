@@ -20,6 +20,9 @@
  *                                that needs no setup (poker deals its own cards)
  *                                says so here instead.
  * @property {string} [cta]       Label for the home card's primary button.
+ * @property {{href:string,label:string}[]} [extra]  Further ways into this game
+ *                                that aren't its console — a practice mode, a
+ *                                trainer. Rendered beside the primary button.
  * @property {GamePage[]} [pages] This game's own screens. They become the tabs on
  *                                its settings page and the standalone URLs that
  *                                still point at each one, so a new game brings its
@@ -107,6 +110,9 @@ export const GAMES = [
     // Poker authors nothing up front — there is no library to count.
     stat: "Live table · nothing to set up",
     cta: "▶ Open table",
+    // The single-player half: no room, no phones, no other people. It's the
+    // only way into the game that doesn't need anybody else in the house.
+    extra: [{ href: "academy.html", label: "🎓 Academy" }],
     pages: [
       {
         key: "table", label: "Table & Cards", hint: "Themes and accessibility",

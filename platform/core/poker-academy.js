@@ -207,6 +207,56 @@ const pick = (random, list) => list[Math.floor(random() * list.length)];
  */
 const DRAW_TYPES = new Set(["flush", "openEnded", "doubleGutshot", "gutshot"]);
 
+/** What each draw is drawing *to*, phrased to drop into a sentence. */
+const DRAW_TARGET = {
+  flush: "a flush",
+  openEnded: "a straight",
+  doubleGutshot: "a straight",
+  gutshot: "a straight",
+  quads: "four of a kind",
+  fullHouse: "a full house",
+  trips: "three of a kind",
+  twoPair: "two pair",
+};
+
+const RANK_WORD = {
+  2: "a two", 3: "a three", 4: "a four", 5: "a five", 6: "a six", 7: "a seven",
+  8: "an eight", 9: "a nine", 10: "a ten", 11: "a jack", 12: "a queen",
+  13: "a king", 14: "an ace",
+};
+
+/** Hands where the leftover cards have a name, rather than being part of the hand. */
+const HAS_KICKERS = new Set([1, 2, 3, 7]);
+
+/**
+ * Why one hand beat the other.
+ *
+ * The interesting case is two hands with the *same* name, which is most of
+ * them once a board pairs — "pair of fives beats pair of fives" is true,
+ * useless, and precisely the sort of confidently unhelpful explanation this
+ * whole mode exists to avoid. So when the names match, this digs into the
+ * tiebreak to find the card that actually decided it and names that instead.
+ */
+function explainShowdown(a, b, cmp) {
+  if (cmp === 0) return `Both play ${describeHandRank(a)} — the pot is split.`;
+
+  const winner = cmp > 0 ? a : b;
+  const loser = cmp > 0 ? b : a;
+  const which = cmp > 0 ? "The first" : "The second";
+  const name = describeHandRank(winner);
+
+  if (name !== describeHandRank(loser)) {
+    return `${which} hand makes ${name}, beating ${describeHandRank(loser)}.`;
+  }
+
+  // Same hand by name: find the first card of the five where they diverge.
+  const at = winner.tiebreak.findIndex((value, i) => value !== loser.tiebreak[i]);
+  if (at < 0) return `${which} hand takes it with ${name}.`;
+  const decider = HAS_KICKERS.has(winner.category) && at > 0 ? "the kicker" : "the next card down";
+  return `Both play ${name}, so it comes down to ${decider}: `
+    + `${RANK_WORD[winner.tiebreak[at]]} against ${RANK_WORD[loser.tiebreak[at]]}. ${which} hand takes it.`;
+}
+
 /**
  * Multiple choice built around a true value.
  *
@@ -261,10 +311,7 @@ const DRILLS = {
       spot: { hole: mine, opponentHole: theirs, board },
       options,
       answer,
-      explain: cmp === 0
-        ? `Both play ${describeHandRank(a)} — the pot is split.`
-        : `${cmp > 0 ? "The first" : "The second"} hand makes ${describeHandRank(cmp > 0 ? a : b)}, `
-          + `beating ${describeHandRank(cmp > 0 ? b : a)}.`,
+      explain: explainShowdown(a, b, cmp),
     };
   },
 
@@ -286,12 +333,17 @@ const DRILLS = {
         truth,
         // The near misses people actually make: forgetting the two cards they
         // hold, counting a gutshot as open-ended, doubling a flush draw.
-        [truth + 2, truth - 2, truth + 4, truth - 1, truth * 2],
+        // Nothing at or below zero — "0 outs" as an option next to a real
+        // count is obviously not the answer, and gives the question away.
+        [truth + 2, truth - 2, truth + 4, truth - 1, truth * 2].filter((n) => n > 0),
         random,
       );
       return {
         kind: "countOuts",
-        question: `How many outs does this hand have to make a ${main.label.replace(/ draw$/i, "").toLowerCase()}?`,
+        // Named by what the draw *makes*, not by the draw's own label: "to
+        // make a draw to trips" is what you get from reusing the label, and
+        // it isn't a sentence.
+        question: `How many outs does this hand have to make ${DRAW_TARGET[main.type] || "a better hand"}?`,
         detail: "Count only the cards that complete this draw.",
         spot: { hole, board },
         options: options.map(String),

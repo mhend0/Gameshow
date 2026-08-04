@@ -125,10 +125,23 @@ function table(engine) {
 }
 
 /**
- * The comparable part of a game state. `id` is a fresh uuid per table and
- * says nothing about the rules; everything else has to match exactly.
+ * The comparable part of a game state.
+ *
+ * Two fields are deliberately not compared, and both for the same reason:
+ * they're readings of the outside world rather than statements of the rules.
+ * `id` is a fresh uuid per table. `actingSince` is a `Date.now()` taken
+ * independently by each engine, so when the two calls straddle a millisecond
+ * boundary the states differ by one — a false failure that says nothing about
+ * drift and would teach everybody to re-run this suite rather than read it.
+ *
+ * The meaningful half of `actingSince` is kept: whether the action clock is
+ * running at all, which *is* a rule and would be real drift if it differed.
  */
-const shape = (game) => JSON.stringify({ ...game, id: null });
+const shape = (game) => JSON.stringify({
+  ...game,
+  id: null,
+  actingSince: game.actingSince ? "running" : "stopped",
+});
 
 describe("poker engine mirror — play", () => {
   test("a scripted three-way hand produces an identical state after every action", () => {
