@@ -5,7 +5,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { SAYINGS, createSayingPicker } from "./poker-sayings.js";
-import { pokerEvents, headlineEvent } from "./poker-events.js";
+import { pokerEvents, headlineEvent, pokerSoundCues } from "./poker-events.js";
 
 const c = (rank, suit) => ({ rank, suit });
 
@@ -221,5 +221,189 @@ describe("poker events", () => {
   test("headlineEvent picks the most dramatic thing that happened", () => {
     assert.equal(headlineEvent(["showdown", "flop"]), "showdown");
     assert.equal(headlineEvent([]), null);
+  });
+});
+
+describe("poker sound cues", () => {
+  /** The cue types present, for assertions that don't care about the payload. */
+  const types = (cues) => cues.map((q) => q.type);
+  const of = (cues, type) => cues.find((q) => q.type === type);
+
+  test("nothing happening makes no noise", () => {
+    assert.deepEqual(pokerSoundCues(snap(), snap()), []);
+  });
+
+  test("a new hand shuffles, then pitches two cards per live player", () => {
+    const before = snap({ handNumber: 1, street: "complete" });
+    const after = snap({
+      handNumber: 2, street: "preflop",
+      seats: [seat("a"), seat("b"), seat("c")],
+    });
+    const cues = pokerSoundCues(before, after);
+    assert.deepEqual(types(cues), ["shuffle", "deal"]);
+    assert.equal(of(cues, "deal").count, 6);
+  });
+
+  test("joining a hand already in progress doesn't deal cards that went out long ago", () => {
+    // The first poll has nothing to compare against — staying silent is the
+    // only honest option.
+    assert.deepEqual(pokerSoundCues(null, snap({ seats: [seat("a"), seat("b")] })), []);
+  });
+
+  test("empty seats aren't dealt to", () => {
+    const after = snap({
+      handNumber: 2, street: "preflop",
+      seats: [seat("a"), seat("b"), { id: null, status: "empty", bet: 0, totalBet: 0 }],
+    });
+    assert.equal(of(pokerSoundCues(snap({ handNumber: 1 }), after), "deal").count, 4);
+  });
+
+  test("a call and a raise sound different, and carry what was put in", () => {
+    const before = snap({ currentBet: 50, seats: [seat("a", { bet: 50, totalBet: 50 }), seat("b")] });
+
+    const called = snap({ currentBet: 50, seats: [seat("a", { bet: 50, totalBet: 50 }), seat("b", { bet: 50, totalBet: 50 })] });
+    const call = of(pokerSoundCues(before, called), "chips");
+    assert.equal(call.amount, 50);
+    assert.equal(call.raise, false);
+    assert.equal(call.seatId, "b");
+
+    const raised = snap({ currentBet: 200, seats: [seat("a", { bet: 50, totalBet: 50 }), seat("b", { bet: 200, totalBet: 200 })] });
+    const raise = of(pokerSoundCues(before, raised), "chips");
+    assert.equal(raise.amount, 200);
+    assert.equal(raise.raise, true);
+  });
+
+  test("chips put in across a street change are counted, not lost to the reset", () => {
+    // `bet` is wiped between streets; only `totalBet` survives, which is why
+    // the diff is taken on that.
+    const before = snap({ street: "flop", currentBet: 100, seats: [seat("a", { bet: 100, totalBet: 150 })] });
+    const after = snap({ street: "turn", currentBet: 0, seats: [seat("a", { bet: 0, totalBet: 250 })] });
+    assert.equal(of(pokerSoundCues(before, after), "chips").amount, 100);
+  });
+
+  test("a check is heard when the action passes someone who owed nothing", () => {
+    const before = snap({
+      street: "flop", currentBet: 0, actingId: "a",
+      seats: [seat("a"), seat("b")],
+    });
+    const after = snap({
+      street: "flop", currentBet: 0, actingId: "b",
+      seats: [seat("a"), seat("b")],
+    });
+    assert.deepEqual(types(pokerSoundCues(before, after)), ["check"]);
+  });
+
+  test("folding to a bet is a fold, not a check", () => {
+    const before = snap({ street: "flop", currentBet: 200, actingId: "a", seats: [seat("a"), seat("b", { bet: 200, totalBet: 200 })] });
+    const after = snap({ street: "flop", currentBet: 200, actingId: "b", seats: [seat("a", { status: "folded" }), seat("b", { bet: 200, totalBet: 200 })] });
+    assert.deepEqual(types(pokerSoundCues(before, after)), ["fold"]);
+  });
+
+  test("someone still owing chips who stops acting hasn't checked", () => {
+    // Guards against calling a timeout-fold or a stale poll a check.
+    const before = snap({ street: "flop", currentBet: 200, actingId: "a", seats: [seat("a")] });
+    const after = snap({ street: "flop", currentBet: 200, actingId: null, seats: [seat("a")] });
+    assert.deepEqual(pokerSoundCues(before, after), []);
+  });
+
+  test("a shove is chips and a sting", () => {
+    const before = snap({ currentBet: 50, seats: [seat("a", { bet: 50, totalBet: 50 })] });
+    const after = snap({ currentBet: 900, seats: [seat("a", { status: "allin", bet: 900, totalBet: 900 })] });
+    const cues = pokerSoundCues(before, after);
+    assert.deepEqual(types(cues), ["chips", "allIn"]);
+    assert.equal(of(cues, "allIn").amount, 900);
+  });
+
+  test("a player already all in doesn't sting again on every poll", () => {
+    const s = snap({ seats: [seat("a", { status: "allin", totalBet: 900 })] });
+    assert.deepEqual(pokerSoundCues(s, snap({ seats: [seat("a", { status: "allin", totalBet: 900 })] })), []);
+  });
+
+  test("board cards land three then one then one", () => {
+    assert.equal(of(pokerSoundCues(snap(), snap({ street: "flop" })), "board").count, 3);
+    assert.equal(of(pokerSoundCues(snap({ street: "flop" }), snap({ street: "turn" })), "board").count, 1);
+  });
+
+  test("streets skipped between polls each get their cards, not just the last", () => {
+    // Everyone all in: the whole board can arrive between two polls, and it
+    // should sound like five cards, not one.
+    const cues = pokerSoundCues(snap(), snap({ street: "river" }));
+    const board = cues.filter((q) => q.type === "board");
+    assert.deepEqual(board.map((q) => q.street), ["flop", "turn", "river"]);
+    assert.equal(board.reduce((t, q) => t + q.count, 0), 5);
+  });
+
+  test("a hand won without a showdown pushes the pot but doesn't get a cheer", () => {
+    const done = snap({
+      street: "complete", pot: 300,
+      results: [{ amount: 300, winners: [{ seatId: "a", rank: null, handName: "Uncontested", share: 300 }] }],
+    });
+    const cues = types(pokerSoundCues(snap({ street: "river" }), done));
+    assert.deepEqual(cues, ["potPush", "win"]);
+  });
+
+  test("a big showdown pot brings the room in", () => {
+    const done = snap({
+      street: "complete", bigBlind: 50, pot: 4000,
+      results: [{ amount: 4000, winners: [{ seatId: "a", rank: { category: 4, tiebreak: [10] }, handName: "Straight", share: 4000 }] }],
+    });
+    const cues = types(pokerSoundCues(snap({ street: "river" }), done));
+    assert.deepEqual(cues, ["showdown", "potPush", "win", "applause"]);
+  });
+
+  test("a small showdown pot is shown down quietly", () => {
+    const done = snap({
+      street: "complete", bigBlind: 50, pot: 300,
+      results: [{ amount: 300, winners: [{ seatId: "a", rank: { category: 1, tiebreak: [7] }, handName: "Pair of Sevens", share: 300 }] }],
+    });
+    const cues = types(pokerSoundCues(snap({ street: "river" }), done));
+    assert.ok(cues.includes("showdown"));
+    assert.ok(!cues.includes("applause"));
+  });
+
+  test("the end of a hand is played once, not on every poll after it", () => {
+    const done = snap({
+      street: "complete", pot: 300,
+      results: [{ amount: 300, winners: [{ seatId: "a", rank: null, handName: "Uncontested", share: 300 }] }],
+    });
+    assert.ok(pokerSoundCues(snap({ street: "river" }), done).length > 0);
+    assert.deepEqual(pokerSoundCues(done, done), []);
+  });
+
+  test("a hand the host cancelled pays out nothing and says nothing", () => {
+    const voided = snap({ street: "complete", handVoided: true, pot: 300, results: [] });
+    assert.deepEqual(pokerSoundCues(snap({ street: "river" }), voided), []);
+  });
+
+  test("being all in mid-hand isn't a bust — it's only a bust once you've lost", () => {
+    const mid = snap({ street: "river", seats: [seat("a", { stack: 500 })] });
+    const shoved = snap({ street: "river", seats: [seat("a", { stack: 0, status: "allin", totalBet: 500 })] });
+    assert.ok(!types(pokerSoundCues(mid, shoved)).includes("bust"));
+
+    const lost = snap({
+      street: "complete", pot: 1000,
+      seats: [seat("a", { stack: 0, status: "allin", totalBet: 500 })],
+      results: [{ amount: 1000, winners: [{ seatId: "b", rank: null, handName: "Uncontested", share: 1000 }] }],
+    });
+    assert.ok(types(pokerSoundCues(shoved, lost)).includes("bust"));
+  });
+
+  test("a player who won the pot from an all-in isn't busted", () => {
+    const shoved = snap({ street: "river", seats: [seat("a", { stack: 0, status: "allin", totalBet: 500 })] });
+    const won = snap({
+      street: "complete", pot: 1000,
+      seats: [seat("a", { stack: 1000, status: "allin", totalBet: 500 })],
+      results: [{ amount: 1000, winners: [{ seatId: "a", rank: null, handName: "Uncontested", share: 1000 }] }],
+    });
+    assert.ok(!types(pokerSoundCues(shoved, won)).includes("bust"));
+  });
+
+  test("someone sitting out broke from an earlier hand isn't busted again every hand", () => {
+    const broke = seat("a", { stack: 0, status: "empty", totalBet: 0 });
+    const done = snap({
+      street: "complete", pot: 300, seats: [broke, seat("b", { stack: 600, totalBet: 300 })],
+      results: [{ amount: 300, winners: [{ seatId: "b", rank: null, handName: "Uncontested", share: 300 }] }],
+    });
+    assert.ok(!types(pokerSoundCues(snap({ street: "river" }), done)).includes("bust"));
   });
 });

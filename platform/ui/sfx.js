@@ -19,6 +19,12 @@ let master = null;
 let noiseBuf = null;
 let muted = readMuted();
 
+/** The poker room tone's nodes while it's running, or null. See `roomTone`. */
+let room = null;
+let roomBuf = null;
+/** Quiet enough to disappear the moment anything else happens. */
+const ROOM_LEVEL = 0.03;
+
 function readMuted() {
   try { return localStorage.getItem(storeKey) === "1"; } catch { return false; }
 }
@@ -321,6 +327,200 @@ export const sfx = {
     if (muted) return;
     tone({ freq: 196, type: "square", dur: 0.42, gain: 0.17 });
     tone({ freq: 147, type: "sawtooth", dur: 0.42, gain: 0.1 });
+  },
+
+  /* ------------------------------------------------------- Texas Hold'em */
+  //
+  // A poker table is the quietest game on the platform and the most textural:
+  // almost everything it does is card on felt, chip on chip, knuckle on wood.
+  // So these lean on filtered noise rather than notes, and only the moments
+  // that are genuinely *events* — a shove, a showdown, a win — get pitched
+  // material. Anything that can be heard several times in a second (cards,
+  // chips) is randomised, because identical clicks in a row read as a machine.
+  //
+  // Every cue takes a `t` offset and schedules itself on the audio clock
+  // instead of via setTimeout: a whole street's worth of sound can be queued
+  // in one go and still land in time on a tab the browser has throttled.
+
+  /** The pack riffled, bridged and squared off. */
+  shuffle({ t = 0 } = {}) {
+    if (muted) return;
+    for (let i = 0; i < 22; i++) {
+      hiss({ t: t + 0.02 + i * 0.016 + Math.random() * 0.008,
+        dur: 0.014, freq: 2600 + Math.random() * 3200, q: 7, gain: 0.045, attack: 0.001 });
+    }
+    hiss({ t: t + 0.4, dur: 0.2, freq: 3400, sweepTo: 900, q: 1.2, gain: 0.07, attack: 0.012 });
+    hiss({ t: t + 0.62, dur: 0.05, freq: 900, q: 1.5, gain: 0.08, attack: 0.002 });
+    tone({ t: t + 0.62, freq: 150, type: "sine", dur: 0.06, gain: 0.06, attack: 0.002 });
+  },
+
+  /** One card pitched across the felt, and the tap as it arrives. */
+  cardDeal({ t = 0 } = {}) {
+    if (muted) return;
+    const f = 4200 + Math.random() * 1800;
+    hiss({ t, dur: 0.085, freq: f, sweepTo: f * 0.32, q: 1.1, gain: 0.055, attack: 0.005 });
+    hiss({ t: t + 0.06, dur: 0.03, freq: 1500, q: 3, gain: 0.035, attack: 0.001 });
+  },
+
+  /** A board card turned face up — crisper than a pitch, with a knock under it. */
+  cardFlip({ t = 0 } = {}) {
+    if (muted) return;
+    hiss({ t, dur: 0.05, freq: 3000, sweepTo: 1200, q: 1.6, gain: 0.075, attack: 0.002 });
+    hiss({ t: t + 0.045, dur: 0.035, freq: 1100, q: 2.5, gain: 0.06, attack: 0.001 });
+    tone({ t: t + 0.045, freq: 190, type: "sine", dur: 0.05, gain: 0.05, attack: 0.002 });
+  },
+
+  /** Checking: two knuckles on the table, the way it's actually done. */
+  tableTap({ t = 0 } = {}) {
+    if (muted) return;
+    [0, 0.11].forEach((d, i) => {
+      tone({ t: t + d, freq: 168 - i * 12, type: "sine", dur: 0.075, gain: 0.16, attack: 0.002 });
+      tone({ t: t + d, freq: 84, type: "triangle", dur: 0.09, gain: 0.09, attack: 0.002 });
+      hiss({ t: t + d, dur: 0.03, freq: 1400, q: 1.4, gain: 0.05, attack: 0.001 });
+    });
+  },
+
+  /** Folding: two cards slid away face down. */
+  muck({ t = 0 } = {}) {
+    if (muted) return;
+    hiss({ t, dur: 0.16, freq: 2400, sweepTo: 700, q: 0.9, gain: 0.05, attack: 0.022 });
+    hiss({ t: t + 0.13, dur: 0.04, freq: 800, q: 2, gain: 0.035, attack: 0.002 });
+  },
+
+  /**
+   * Chips onto the felt. Clay, not metal: a high click for the edge and a
+   * short ring for the body, scattered rather than evenly spaced.
+   * @param {{t?:number, count?:number}} [opts] `count` is roughly how many chips.
+   */
+  chips({ t = 0, count = 4 } = {}) {
+    if (muted) return;
+    const n = Math.max(2, Math.min(10, Math.round(count)));
+    for (let i = 0; i < n; i++) {
+      const at = t + i * 0.028 + Math.random() * 0.022;
+      const f = 900 + Math.random() * 900;
+      hiss({ t: at, dur: 0.022, freq: 2800 + Math.random() * 2400, q: 6, gain: 0.06, attack: 0.001 });
+      tone({ t: at, freq: f, type: "triangle", dur: 0.05, gain: 0.045, attack: 0.001 });
+      tone({ t: at, freq: f * 0.5, type: "sine", dur: 0.035, gain: 0.03, attack: 0.001 });
+    }
+  },
+
+  /** The whole pot raked in and pushed across — a slide with chips loose on top. */
+  potPush({ t = 0 } = {}) {
+    if (muted) return;
+    hiss({ t, dur: 0.42, freq: 700, sweepTo: 260, q: 0.8, gain: 0.075, attack: 0.06 });
+    for (let i = 0; i < 14; i++) {
+      const at = t + 0.1 + Math.random() * 0.34;
+      const f = 800 + Math.random() * 1000;
+      hiss({ t: at, dur: 0.02, freq: 2600 + Math.random() * 2600, q: 6, gain: 0.045, attack: 0.001 });
+      tone({ t: at, freq: f, type: "triangle", dur: 0.045, gain: 0.035, attack: 0.001 });
+    }
+  },
+
+  /**
+   * Somebody just pushed it all in. The one cue here allowed to be theatrical:
+   * a drone that lifts under the table, a swell over it, and two heartbeats,
+   * so the room knows to stop talking before it looks at the screen.
+   */
+  allIn({ t = 0 } = {}) {
+    if (muted) return;
+    tone({ t, freq: 110, to: 146.83, type: "sawtooth", dur: 1.5, gain: 0.09, attack: 0.25 });
+    tone({ t, freq: 55, to: 73.42, type: "sine", dur: 1.6, gain: 0.11, attack: 0.3 });
+    hiss({ t, dur: 1.35, freq: 1400, sweepTo: 5200, q: 0.6, gain: 0.05, attack: 0.9 });
+    [0.12, 0.44].forEach((d) => tone({ t: t + d, freq: 62, type: "sine", dur: 0.16, gain: 0.16, attack: 0.006 }));
+    tone({ t: t + 1.05, freq: 220, to: 110, type: "square", dur: 0.5, gain: 0.08 });
+  },
+
+  /** Cards on their backs: three notes climbing, then whatever the board says. */
+  showdown({ t = 0 } = {}) {
+    if (muted) return;
+    [392, 466.16, 587.33].forEach((f, i) => {
+      tone({ t: t + i * 0.13, freq: f, type: "triangle", dur: 0.28, gain: 0.12 });
+      tone({ t: t + i * 0.13, freq: f * 2, type: "sine", dur: 0.2, gain: 0.05 });
+    });
+  },
+
+  /** Taking down the pot. `big` is for the ones the room will remember. */
+  pokerWin({ t = 0, big = false } = {}) {
+    if (muted) return;
+    const notes = big ? [523.25, 659.25, 783.99, 1046.5, 1318.51] : [523.25, 659.25, 783.99];
+    notes.forEach((f, i) => {
+      tone({ t: t + i * 0.09, freq: f, type: "triangle", dur: 0.42, gain: 0.15 });
+      tone({ t: t + i * 0.09, freq: f * 2, type: "sine", dur: 0.3, gain: 0.05 });
+    });
+    const tail = t + notes.length * 0.09;
+    tone({ t: tail, freq: notes[notes.length - 1], type: "triangle", dur: big ? 1.1 : 0.7, gain: 0.13 });
+    if (big) tone({ t: tail, freq: notes[notes.length - 1] * 1.5, type: "sine", dur: 1.1, gain: 0.06 });
+  },
+
+  /** Out of chips. Everything falls. */
+  bustOut({ t = 0 } = {}) {
+    if (muted) return;
+    tone({ t, freq: 330, to: 82, type: "triangle", dur: 1, gain: 0.13 });
+    tone({ t, freq: 165, to: 41, type: "sine", dur: 1.1, gain: 0.09 });
+    hiss({ t, dur: 0.7, freq: 700, sweepTo: 120, q: 0.8, gain: 0.05, attack: 0.025 });
+  },
+
+  /**
+   * The room itself: a low murmur that sits under everything so the table
+   * doesn't feel like it's in a vacuum between hands. Unlike every other cue
+   * this one keeps playing, so it's a switch rather than a trigger.
+   *
+   * It breathes — a slow LFO on the gain — because steady filtered noise reads
+   * as air conditioning, and a crowd never holds still.
+   *
+   * @param {boolean} on
+   * @returns {boolean} Whether the room tone is now running.
+   */
+  roomTone(on = true) {
+    const c = ensureCtx();
+    if (!c) return false;
+
+    if (!on) {
+      if (!room) return false;
+      const { src, lfo, gain } = room;
+      room = null;
+      // Fade before stopping: cutting a noise source dead is an audible click.
+      gain.gain.cancelScheduledValues(c.currentTime);
+      gain.gain.setValueAtTime(gain.gain.value, c.currentTime);
+      gain.gain.linearRampToValueAtTime(0.0001, c.currentTime + 0.6);
+      src.stop(c.currentTime + 0.7);
+      lfo.stop(c.currentTime + 0.7);
+      return false;
+    }
+
+    if (room) return true;
+    // Its own, longer buffer rather than the shared one-second clip: looping a
+    // single second of noise puts an audible pulse on the loop point, and this
+    // is the only cue that runs long enough for anyone to notice.
+    if (!roomBuf) {
+      roomBuf = c.createBuffer(1, c.sampleRate * 4, c.sampleRate);
+      const d = roomBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = c.createBufferSource();
+    src.buffer = roomBuf;
+    src.loop = true;
+    const hp = c.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 130;
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 520;
+    lp.Q.value = 0.5;
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(0.0001, c.currentTime);
+    gain.gain.linearRampToValueAtTime(ROOM_LEVEL, c.currentTime + 1.2);
+    const lfo = c.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 0.07;
+    const swell = c.createGain();
+    swell.gain.value = ROOM_LEVEL * 0.5;
+    lfo.connect(swell).connect(gain.gain);
+    src.connect(hp).connect(lp).connect(gain).connect(master);
+    src.start();
+    lfo.start();
+    room = { src, lfo, gain };
+    return true;
   },
 };
 

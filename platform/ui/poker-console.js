@@ -15,6 +15,8 @@
 //     serverless functions have nobody to run a timer for them.
 
 import { el, toast } from "./ui.js";
+import { sfx } from "./sfx.js";
+import { createPokerSound } from "./poker-sound.js";
 import { formatChips } from "../core/poker-chips.js";
 import { DEFAULT_BLIND_LEVELS } from "../core/poker.js";
 
@@ -43,6 +45,17 @@ export function mountPokerConsole(root, { base, tvUrl, joinUrl }) {
   /** Guards so the two automatic behaviours fire once, not once per poll. */
   let timeoutSentFor = "";
   let autoDealAt = 0;
+  /** The previous snapshot, for the speaker to diff against. */
+  let prevGame = null;
+  /** So a countdown ticks once per second, not once per poll. */
+  let lastSecond = null;
+
+  /* The host's laptop starts silent: the TV is the room's speakers, and this
+     screen is usually sitting next to somebody who is talking. Unmuting it
+     gives the host the same table sound plus the action clock — useful when
+     the TV is across the room, or when there isn't one. No room tone though;
+     a murmur out of a laptop next to you is just noise. */
+  const sound = createPokerSound({ scope: "poker-control", startMuted: true, roomTone: false });
 
   const post = (body) =>
     fetch(`${base}/api/poker`, {
@@ -57,6 +70,16 @@ export function mountPokerConsole(root, { base, tvUrl, joinUrl }) {
   /* =================================================================== DOM */
 
   const statusPill = el("span", { class: "pc-status", text: "Connecting…" });
+  const soundBtn = el("button", {
+    class: "btn sm ghost pc-sound", title: "Table sound and the action clock, on this screen",
+    onClick: () => { sound.unlock(); sound.toggleMute(); paintSoundBtn(); },
+  });
+  const paintSoundBtn = () => {
+    soundBtn.textContent = sound.muted ? "🔇" : "🔊";
+    soundBtn.setAttribute("aria-pressed", String(!sound.muted));
+  };
+  paintSoundBtn();
+
   const codeEl = el("div", { class: "pc-code" });
   const joinLinkEl = el("div", { class: "pc-link" });
   const qrBox = el("div", { class: "pc-qr" });
@@ -302,6 +325,25 @@ export function mountPokerConsole(root, { base, tvUrl, joinUrl }) {
     );
   }
 
+  /**
+   * The last few seconds of somebody's action clock, out loud.
+   *
+   * Only on this screen: the clock is the host's problem, and a countdown
+   * chirping from the TV would tell the whole room to hurry a player up. It
+   * fires on the second changing rather than on the poll, because polls are
+   * faster than seconds and would otherwise tick several times each.
+   */
+  const CLOCK_AUDIBLE_FROM = 5;
+
+  function runClock() {
+    const left = game.secondsLeft;
+    if (left == null || !game.actingId) { lastSecond = null; return; }
+    if (left !== lastSecond) {
+      if (lastSecond !== null && left > 0 && left <= CLOCK_AUDIBLE_FROM) sfx.clockTick(left);
+      lastSecond = left;
+    }
+  }
+
   /* ================================================== automatic behaviours */
 
   /**
@@ -339,12 +381,16 @@ export function mountPokerConsole(root, { base, tvUrl, joinUrl }) {
       statusPill.className = "pc-status live";
       if (!r || !r.game) {
         game = null;
+        prevGame = null;
         summary.innerHTML = "";
         summary.appendChild(el("p", { class: "pc-hint", text: "This room has no poker table. Create one to start." }));
         return;
       }
+      sound.react(prevGame, r.game);
+      prevGame = r.game;
       game = r.game;
       render();
+      runClock();
       runAutomation();
     } catch {
       statusPill.textContent = "Reconnecting…";
@@ -356,8 +402,11 @@ export function mountPokerConsole(root, { base, tvUrl, joinUrl }) {
     if (!room) { renderSetup(); return; }
     root.innerHTML = "";
     root.append(el("div", { class: "pc-head" }, [
-      el("span", { class: "pc-title", text: "🂡 Host console" }), statusPill,
+      el("span", { class: "pc-title", text: "🂡 Host console" }), statusPill, soundBtn,
     ]), layout());
+    // Every button on this page is a user gesture, which is all the browser
+    // wants before it will let the page make a sound.
+    root.addEventListener("pointerdown", () => sound.unlock(), { once: true });
 
     codeEl.textContent = room.code;
     joinLinkEl.textContent = joinUrl(room.code).replace(/^https?:\/\//, "");
@@ -376,7 +425,7 @@ export function mountPokerConsole(root, { base, tvUrl, joinUrl }) {
   boot();
 
   return {
-    destroy() { if (poll) clearInterval(poll); root.innerHTML = ""; },
+    destroy() { if (poll) clearInterval(poll); sound.destroy(); root.innerHTML = ""; },
   };
 }
 
@@ -393,6 +442,7 @@ function ensureStyles() {
   .pc-status { font-size:12.5px; font-weight:700; color:var(--text-2); margin-left:auto; }
   .pc-status.live { color:var(--good); }
   .pc-status.down { color:var(--bad); }
+  .pc-sound { flex:none; }
 
   .pc-grid { display:grid; gap:16px; padding:18px 20px; align-items:start;
     grid-template-columns:minmax(0,1fr); }
