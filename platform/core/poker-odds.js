@@ -181,6 +181,14 @@ export function equity(hands, community = [], opts = {}) {
 export function equityVsRandom(hole, community = [], opts = {}) {
   const { opponents = 1, trials = DEFAULT_TRIALS, seed = 0x5eed } = opts;
   const board = community.filter(Boolean);
+
+  // Seeded and pure means the same question provably has the same answer, so
+  // asking it twice can be free. Worth caching because both callers ask
+  // repeatedly for the same spot: a bot re-reads its equity as a hand is
+  // re-rendered, and the Academy shows the same number in several places.
+  const memoKey = `${handLabel(hole)}|${handLabel(board)}|${opponents}|${trials}|${seed}`;
+  const hit = MEMO.get(memoKey);
+  if (hit) return hit;
   const deck = remainingDeck([...board, ...hole]);
   const rand = seededRandom(seed);
   const pool = [...deck];
@@ -212,7 +220,29 @@ export function equityVsRandom(hole, community = [], opts = {}) {
     if (split === 1) { win++; share += 1; } else { tie++; share += 1 / split; }
   }
 
-  return { equity: share / trials, win: win / trials, tie: tie / trials, boards: trials, exact: false };
+  const result = { equity: share / trials, win: win / trials, tie: tie / trials, boards: trials, exact: false };
+  remember(memoKey, result);
+  return result;
+}
+
+/**
+ * A small bounded cache for `equityVsRandom`.
+ *
+ * Bounded because an Academy session asks about a great many spots over an
+ * evening and none of them are worth holding onto forever; oldest-out is
+ * plenty, since the repeats that matter are always clustered in time.
+ */
+const MEMO = new Map();
+const MEMO_LIMIT = 400;
+
+function remember(key, value) {
+  if (MEMO.size >= MEMO_LIMIT) MEMO.delete(MEMO.keys().next().value);
+  MEMO.set(key, value);
+}
+
+/** Drop everything cached. Tests use it to measure honestly; nothing else needs it. */
+export function clearEquityCache() {
+  MEMO.clear();
 }
 
 /* =================================================================== outs */
